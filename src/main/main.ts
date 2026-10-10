@@ -49,6 +49,7 @@ const preferences = new PreferencesController(
   createNodeFileSystem(),
   path.join(app.getPath('userData'), 'preferences.json'),
   {
+    isMac: process.platform === 'darwin',
     register: (shortcut) =>
       globalShortcut.register(shortcut, () => {
         void toggleWindow();
@@ -119,6 +120,7 @@ function attachWindowDiagnostics(window: BrowserWindow) {
   window.webContents.on(
     'did-fail-load',
     (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
+      if (isMainFrame) void preferences.setShortcutCapture(false);
       void logError('renderer', 'Window failed to load', {
         errorCode,
         errorDescription,
@@ -127,12 +129,20 @@ function attachWindowDiagnostics(window: BrowserWindow) {
       });
     }
   );
+  window.webContents.on('did-start-navigation', (_event, _url, _inPlace, isMainFrame) => {
+    if (isMainFrame) void preferences.setShortcutCapture(false);
+  });
+  window.webContents.on('destroyed', () => {
+    void preferences.setShortcutCapture(false);
+  });
 
   window.webContents.on('render-process-gone', (_event, details) => {
+    void preferences.setShortcutCapture(false);
     void logError('renderer', 'Render process exited unexpectedly', details);
   });
 
   window.webContents.on('unresponsive', () => {
+    void preferences.setShortcutCapture(false);
     void logError('renderer', 'Window became unresponsive');
   });
 
@@ -184,12 +194,14 @@ async function createWindow(): Promise<BrowserWindow> {
   }
 
   window.on('blur', () => {
+    void preferences.setShortcutCapture(false);
     if (!window.webContents.isDevToolsOpened()) {
       window.hide();
     }
   });
 
   window.on('closed', () => {
+    void preferences.setShortcutCapture(false);
     unsubscribeUpdater();
     if (windowRef === window) {
       windowRef = undefined;
@@ -456,6 +468,10 @@ function registerIpc() {
   ipcMain.handle(ch.preferencesChange, (event, change: unknown) => {
     if (event.sender !== windowRef?.webContents) throw new Error('Untrusted preferences request');
     return preferences.change(change);
+  });
+  ipcMain.handle(ch.preferencesShortcutCapture, (event, recording: unknown) => {
+    if (event.sender !== windowRef?.webContents) throw new Error('Untrusted preferences request');
+    return preferences.setShortcutCapture(recording);
   });
   ipcMain.handle(
     ch.deviceBootstrap,
