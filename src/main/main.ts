@@ -13,6 +13,7 @@ import {
   Tray,
 } from 'electron';
 
+import { showOnboardingOnce } from '../backend/app/onboarding';
 import { createNodeFileSystem } from '../backend/core/fileSystem';
 import { PreferencesController } from '../backend/preferences';
 import { INVOKE_CHANNELS } from '../shared/ipcContract';
@@ -364,6 +365,42 @@ async function handleManualUpdateCheckFromMenu() {
   await showUpdaterResultDialog(status);
 }
 
+async function showFirstLaunchHint(activeShortcut: string | null) {
+  try {
+    await showOnboardingOnce(
+      createNodeFileSystem(),
+      path.join(app.getPath('userData'), 'onboarding.json'),
+      async () => {
+        // An app-modal dialog has no remote-window parent: blur auto-hide cannot hide the hint.
+        if (process.platform === 'darwin') {
+          app.focus({ steal: true });
+        }
+        const result = await dialog.showMessageBox({
+          type: 'info',
+          title: 'Welcome to GTV Remote',
+          message: 'Your remote lives in the menu bar',
+          detail: [
+            'Look for the GTV Remote icon in the menu bar at the top of your screen. The app does not stay in the Dock.',
+            'Click the menu-bar icon to show or hide the remote. Right-click it for Show Remote, Hide Remote, and Quit.',
+            'The remote automatically hides when you click away or switch to another app. Hiding it does not quit the app.',
+            activeShortcut
+              ? `Global shortcut: ${activeShortcut} shows or hides the remote from any app.`
+              : 'The global shortcut is unavailable; use the menu-bar icon to show or hide the remote.',
+            'To exit completely, right-click the menu-bar icon and choose Quit.',
+          ].join('\n\n'),
+          buttons: ['Got it'],
+          defaultId: 0,
+          cancelId: 0,
+          icon: loadPngIcon(128),
+        });
+        return result.response === 0;
+      }
+    );
+  } catch (error) {
+    await logError('main', 'Could not show or save first-launch hint', error);
+  }
+}
+
 async function bootstrapApp() {
   buildApplicationMenu();
   if (process.platform === 'darwin') {
@@ -386,6 +423,7 @@ async function bootstrapApp() {
     shortcut: preferences.getState().activeShortcut,
     logPath: getLoggerPath(),
   });
+  await showFirstLaunchHint(preferences.getState().activeShortcut);
   await showWindow();
 
   setTimeout(() => {
