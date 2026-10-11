@@ -1,3 +1,0 @@
-# Graphify refresh now runs in pre-commit so generated graph updates are included
-# in the same commit as the source changes.
-exit 0
