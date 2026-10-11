@@ -165,3 +165,5 @@ Click or focus the show/hide shortcut control, then press and release the actual
 ## For Developers
 
 Development setup, packaging, debug telemetry, and local build workflows are documented in [DEVELOPMENT.md](DEVELOPMENT.md).
+
+After dependency setup and `yarn build`, `yarn test:integration` runs the real Electron functional regression guardrail without a live TV. It uses isolated temporary profiles, genuine certificate-bound TLS pairing, an independent TV protocol/model emulator, production fake-device microphone capture and sandbox updater install/rollback operations. See [integration setup, the feature-to-scenario matrix and narrow hardware/native fidelity limits](tests/integration/README.md). The mandatory CI functional job runs under Linux Xvfb; this guardrail is not a firmware-interoperability or native macOS signing/permissions guarantee.

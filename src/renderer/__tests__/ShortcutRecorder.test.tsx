@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { AppPreferences, PreferenceResult } from '../../shared/preferences';
@@ -105,6 +106,82 @@ describe('accessible shortcut recording', () => {
       });
       expect(view.onChange).not.toHaveBeenCalled();
       if (action === 'Escape') expect(view.outerKeyDown).not.toHaveBeenCalled();
+    }
+  );
+
+  it.each([
+    { shiftKey: false, destination: 'Save shortcut' },
+    { shiftKey: true, destination: 'Done' },
+  ])(
+    'restores before moving Tab focus to $destination without restarting capture',
+    async ({ shiftKey, destination }) => {
+      let restore!: (result: PreferenceResult) => void;
+      const restoration = new Promise<PreferenceResult>((resolve) => {
+        restore = resolve;
+      });
+      const capture = vi
+        .fn<(recording: boolean) => Promise<PreferenceResult>>()
+        .mockResolvedValue({ preferences, error: null })
+        .mockResolvedValueOnce({ preferences, error: null })
+        .mockReturnValueOnce(restoration);
+      vi.stubGlobal('gtvRemote', { setShortcutCapture: capture });
+      const onChange = vi.fn();
+      function Settings() {
+        const [recording, setRecording] = useState(false);
+        return (
+          <section>
+            <button disabled={recording}>Done</button>
+            <ShortcutRecorder
+              shortcut={preferences.shortcut}
+              disabled={false}
+              onChange={onChange}
+              onPreferences={vi.fn()}
+              onError={vi.fn()}
+              onRecording={setRecording}
+            />
+            <button disabled={recording}>Save shortcut</button>
+          </section>
+        );
+      }
+      render(<Settings />);
+      const recorder = screen.getByRole('button', { name: /record shortcut/i });
+      act(() => {
+        recorder.focus();
+      });
+      await waitFor(() => expect(recorder).toHaveAttribute('aria-pressed', 'true'));
+      const target = screen.getByRole('button', { name: destination });
+      expect(target).toBeDisabled();
+      const tab = new KeyboardEvent('keydown', {
+        key: 'Tab',
+        shiftKey,
+        bubbles: true,
+        cancelable: true,
+      });
+      fireEvent(recorder, tab);
+      expect(tab.defaultPrevented).toBe(true);
+      expect(capture.mock.calls.map(([value]) => value)).toEqual([true, false]);
+      expect(recorder).toHaveFocus();
+      expect(target).toBeDisabled();
+
+      await act(async () => {
+        restore({ preferences, error: null });
+        await restoration;
+      });
+      expect(recorder).toHaveAttribute('aria-pressed', 'false');
+      expect(target).toBeEnabled();
+      expect(target).toHaveFocus();
+      expect(capture.mock.calls.map(([value]) => value)).toEqual([true, false]);
+      expect(onChange).not.toHaveBeenCalled();
+
+      act(() => {
+        recorder.focus();
+      });
+      await waitFor(() => expect(recorder).toHaveAttribute('aria-pressed', 'true'));
+      expect(capture.mock.calls.map(([value]) => value)).toEqual([true, false, true]);
+      fireEvent.keyDown(recorder, { key: 'Escape' });
+      await waitFor(() => expect(recorder).toHaveAttribute('aria-pressed', 'false'));
+      expect(capture.mock.calls.map(([value]) => value)).toEqual([true, false, true, false]);
+      expect(onChange).not.toHaveBeenCalled();
     }
   );
 

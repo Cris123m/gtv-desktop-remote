@@ -333,6 +333,7 @@ function App() {
   );
   const assistantLongPressTimerRef = useRef<number | null>(null);
   const assistantStartingRef = useRef(false);
+  const assistantStoppingRef = useRef(false);
   const assistantActiveRef = useRef(false);
   const assistantSessionTokenRef = useRef(0);
   const assistantVoiceSessionIdRef = useRef<number | null>(null);
@@ -529,76 +530,95 @@ function App() {
     }
   }
 
-  async function stopAssistantSession() {
+  async function stopAssistantSession(captureError?: unknown) {
     clearAssistantLongPressTimer();
+    if (assistantStoppingRef.current) {
+      return;
+    }
     assistantSessionTokenRef.current += 1;
-    assistantStartingRef.current = false;
-
     if (!assistantActiveRef.current) {
-      setAssistantStatus('idle');
       return;
     }
 
+    assistantStoppingRef.current = true;
     assistantActiveRef.current = false;
-    setAssistantStatus('idle');
-
     const sessionId = assistantVoiceSessionIdRef.current;
     assistantVoiceSessionIdRef.current = null;
     const sentChunks = assistantChunkCountRef.current;
+    const remaining = assistantAudioBufferRef.current;
+    let chunkQueue = assistantChunkQueueRef.current;
+    assistantAudioBufferRef.current = new Uint8Array(0);
     assistantChunkCountRef.current = 0;
     assistantFirstChunkSentRef.current = false;
 
     const processor = assistantProcessorRef.current;
-    if (processor) {
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
-      processor.onaudioprocess = null;
-      processor.disconnect();
-      assistantProcessorRef.current = null;
-    }
-
     const stream = assistantMediaStreamRef.current;
-    if (stream) {
-      for (const track of stream.getTracks()) {
-        track.stop();
-      }
-      assistantMediaStreamRef.current = null;
-    }
-
     const context = assistantAudioContextRef.current;
-    if (context) {
-      await context.close();
-      assistantAudioContextRef.current = null;
-    }
-
-    if (sessionId !== null && assistantAudioBufferRef.current.length > 0) {
-      const remaining = assistantAudioBufferRef.current;
-      const finalSize = Math.max(ASSISTANT_VOICE_MIN_CHUNK_BYTES, remaining.length);
-      const padded = new Uint8Array(finalSize);
-      padded.set(remaining.subarray(0, finalSize));
-      assistantAudioBufferRef.current = new Uint8Array(0);
-      assistantChunkQueueRef.current = assistantChunkQueueRef.current.then(async () => {
-        await getDesktopApi().sendAssistantVoiceChunk(sessionId, toBase64(padded));
-      });
-    }
-
-    if (sessionId !== null) {
+    assistantProcessorRef.current = null;
+    assistantMediaStreamRef.current = null;
+    assistantAudioContextRef.current = null;
+    let failure = captureError;
+    try {
+      if (processor) {
+        // eslint-disable-next-line @typescript-eslint/no-deprecated
+        processor.onaudioprocess = null;
+        processor.disconnect();
+      }
+      if (sessionId !== null && remaining.length > 0 && failure === undefined) {
+        const finalSize = Math.max(ASSISTANT_VOICE_MIN_CHUNK_BYTES, remaining.length);
+        const padded = new Uint8Array(finalSize);
+        padded.set(remaining.subarray(0, finalSize));
+        chunkQueue = chunkQueue.then(async () => {
+          await getDesktopApi().sendAssistantVoiceChunk(sessionId, toBase64(padded));
+        });
+      }
+      await chunkQueue;
+    } catch (error) {
+      failure ??= error;
+    } finally {
+      if (stream) {
+        for (const track of stream.getTracks()) {
+          track.stop();
+        }
+      }
+      // Backend cleanup must run even when the PCM queue has rejected.
       try {
-        await assistantChunkQueueRef.current;
-        await getDesktopApi().stopAssistantVoice(sessionId);
+        if (sessionId !== null) {
+          await getDesktopApi().stopAssistantVoice(sessionId);
+        }
+      } catch (error) {
+        failure ??= error;
+      } finally {
+        try {
+          if (context && context.state !== 'closed') {
+            await context.close();
+          }
+        } catch (error) {
+          failure ??= error;
+        } finally {
+          assistantStoppingRef.current = false;
+        }
+      }
+    }
+
+    if (failure !== undefined) {
+      setAssistantStatus('error');
+      setBootstrap((current) => ({
+        ...current,
+        deviceState: {
+          ...current.deviceState,
+          status: 'error',
+          message: (failure as Error).message,
+        },
+      }));
+    } else {
+      setAssistantStatus('idle');
+      if (sessionId !== null) {
         setBootstrap((current) => ({
           ...current,
           deviceState: {
             ...current.deviceState,
             message: `Assistant voice sent (${String(sentChunks)} chunk${sentChunks === 1 ? '' : 's'}).`,
-          },
-        }));
-      } catch (error) {
-        setBootstrap((current) => ({
-          ...current,
-          deviceState: {
-            ...current.deviceState,
-            status: 'error',
-            message: (error as Error).message,
           },
         }));
       }
@@ -609,6 +629,7 @@ function App() {
     if (
       assistantActiveRef.current ||
       assistantStartingRef.current ||
+      assistantStoppingRef.current ||
       remoteDisabled ||
       currentView !== 'remote'
     ) {
@@ -619,35 +640,18 @@ function App() {
     assistantActiveRef.current = true;
     const sessionToken = assistantSessionTokenRef.current + 1;
     assistantSessionTokenRef.current = sessionToken;
+    assistantChunkQueueRef.current = Promise.resolve();
+    assistantAudioBufferRef.current = new Uint8Array(0);
+    assistantChunkCountRef.current = 0;
+    assistantFirstChunkSentRef.current = false;
     setAssistantStatus('active');
 
     let sessionId: number | null = null;
     let mediaStream: MediaStream | null = null;
     let audioContext: AudioContext | null = null;
-    async function cleanupStartedAudio() {
-      const processor = assistantProcessorRef.current;
-      if (processor) {
-        // eslint-disable-next-line @typescript-eslint/no-deprecated
-        processor.onaudioprocess = null;
-        processor.disconnect();
-        assistantProcessorRef.current = null;
-      }
-
-      const currentStream = assistantMediaStreamRef.current;
-      if (currentStream) {
-        for (const track of currentStream.getTracks()) {
-          track.stop();
-        }
-        assistantMediaStreamRef.current = null;
-      }
-
-      const currentContext = assistantAudioContextRef.current;
-      if (currentContext) {
-        await currentContext.close().catch(() => undefined);
-        assistantAudioContextRef.current = null;
-      }
-    }
-
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
+    let processor: ScriptProcessorNode | null = null;
+    let started = false;
     try {
       try {
         mediaStream = await navigator.mediaDevices.getUserMedia({
@@ -670,29 +674,29 @@ function App() {
         );
       }
       if (assistantSessionTokenRef.current !== sessionToken) {
-        for (const track of mediaStream.getTracks()) {
-          track.stop();
-        }
         return;
       }
 
-      assistantMediaStreamRef.current = mediaStream;
-
       audioContext = new AudioContext();
-      assistantAudioContextRef.current = audioContext;
       await audioContext.resume();
+      if (assistantSessionTokenRef.current !== sessionToken) {
+        return;
+      }
       if (audioContext.state !== 'running') {
         throw new Error('Microphone audio context could not start.');
       }
       const inputSampleRate = audioContext.sampleRate;
       const source = audioContext.createMediaStreamSource(mediaStream);
       // eslint-disable-next-line @typescript-eslint/no-deprecated
-      const processor = audioContext.createScriptProcessor(4096, 1, 1);
-      assistantProcessorRef.current = processor;
+      processor = audioContext.createScriptProcessor(4096, 1, 1);
 
       // eslint-disable-next-line @typescript-eslint/no-deprecated
       processor.onaudioprocess = (event) => {
-        if (!assistantActiveRef.current || assistantVoiceSessionIdRef.current === null) {
+        if (
+          assistantSessionTokenRef.current !== sessionToken ||
+          !assistantActiveRef.current ||
+          assistantVoiceSessionIdRef.current === null
+        ) {
           return;
         }
 
@@ -725,57 +729,74 @@ function App() {
 
           assistantChunkQueueRef.current = assistantChunkQueueRef.current.then(async () => {
             await getDesktopApi().sendAssistantVoiceChunk(activeSessionId, toBase64(payload));
-            assistantChunkCountRef.current += 1;
-            assistantFirstChunkSentRef.current = true;
+            if (assistantSessionTokenRef.current === sessionToken) {
+              assistantChunkCountRef.current += 1;
+              assistantFirstChunkSentRef.current = true;
+            }
+          });
+          void assistantChunkQueueRef.current.catch((error: unknown) => {
+            if (assistantSessionTokenRef.current === sessionToken && assistantActiveRef.current) {
+              void stopAssistantSession(error);
+            }
           });
         }
       };
 
       source.connect(processor);
       processor.connect(audioContext.destination);
-
-      if (assistantSessionTokenRef.current !== sessionToken) {
-        await cleanupStartedAudio();
-        return;
-      }
-
       sessionId = await getDesktopApi().startAssistantVoice();
       if (assistantSessionTokenRef.current !== sessionToken) {
-        await getDesktopApi().stopAssistantVoice(sessionId);
-        await cleanupStartedAudio();
         return;
       }
 
       assistantVoiceSessionIdRef.current = sessionId;
-      assistantFirstChunkSentRef.current = false;
+      assistantMediaStreamRef.current = mediaStream;
+      assistantAudioContextRef.current = audioContext;
+      assistantProcessorRef.current = processor;
+      started = true;
     } catch (error) {
-      assistantActiveRef.current = false;
-      setAssistantStatus('error');
-      setBootstrap((current) => ({
-        ...current,
-        deviceState: {
-          ...current.deviceState,
-          status: 'error',
-          message: (error as Error).message,
-        },
-      }));
-      if (mediaStream && assistantMediaStreamRef.current !== mediaStream) {
-        for (const track of mediaStream.getTracks()) {
-          track.stop();
-        }
-      }
-      if (audioContext && assistantAudioContextRef.current !== audioContext) {
-        await audioContext.close().catch(() => undefined);
-      }
-      if (sessionId !== null && assistantVoiceSessionIdRef.current !== sessionId) {
-        await getDesktopApi()
-          .stopAssistantVoice(sessionId)
-          .catch(() => undefined);
-      }
-      await cleanupStartedAudio();
-      await stopAssistantSession();
-    } finally {
       if (assistantSessionTokenRef.current === sessionToken) {
+        assistantActiveRef.current = false;
+        setAssistantStatus('error');
+        setBootstrap((current) => ({
+          ...current,
+          deviceState: {
+            ...current.deviceState,
+            status: 'error',
+            message: (error as Error).message,
+          },
+        }));
+      }
+    } finally {
+      try {
+        if (!started) {
+          try {
+            if (processor) {
+              // eslint-disable-next-line @typescript-eslint/no-deprecated
+              processor.onaudioprocess = null;
+              processor.disconnect();
+            }
+          } finally {
+            if (mediaStream) {
+              for (const track of mediaStream.getTracks()) {
+                track.stop();
+              }
+            }
+            try {
+              if (sessionId !== null) {
+                await getDesktopApi()
+                  .stopAssistantVoice(sessionId)
+                  .catch(() => undefined);
+              }
+            } finally {
+              if (audioContext && audioContext.state !== 'closed') {
+                await audioContext.close().catch(() => undefined);
+              }
+            }
+          }
+        }
+      } finally {
+        // A cancelled start still owns its resources until this cleanup finishes.
         assistantStartingRef.current = false;
       }
     }
@@ -791,10 +812,15 @@ function App() {
         return;
       }
 
+      const sessionToken = assistantSessionTokenRef.current;
       void getDesktopApi()
         .hasPendingAssistantVoiceSession()
         .then((pending) => {
-          if (pending && !assistantActiveRef.current) {
+          if (
+            pending &&
+            assistantSessionTokenRef.current === sessionToken &&
+            !assistantActiveRef.current
+          ) {
             void startAssistantSession();
           }
         })
@@ -819,10 +845,16 @@ function App() {
         return;
       }
 
+      const sessionToken = assistantSessionTokenRef.current;
       void getDesktopApi()
         .hasPendingAssistantVoiceSession()
         .then((pending) => {
-          if (!pending && assistantActiveRef.current) {
+          if (
+            !pending &&
+            assistantSessionTokenRef.current === sessionToken &&
+            assistantActiveRef.current &&
+            !assistantStartingRef.current
+          ) {
             void stopAssistantSession();
           }
         })

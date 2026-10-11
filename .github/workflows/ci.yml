@@ -93,8 +93,37 @@ jobs:
           path: coverage/
           retention-days: 7
 
+  integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: yarn
+      - run: corepack enable
+      - run: yarn install --immutable
+      - run: yarn playwright install ffmpeg
+      - name: Install Electron display and media prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb xauth zip unzip libnss3 libatk1.0-0 libatk-bridge2.0-0 libgtk-3-0 libgbm1 libasound2t64 libxss1 libxtst6
+      - run: yarn build
+      - run: yarn typecheck:integration
+      - name: Real Electron functional guardrail
+        run: xvfb-run -a --server-args="-screen 0 1280x1024x24" yarn test:integration
+      - name: Upload sanitized functional diagnostics
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: electron-functional-diagnostics
+          path: |
+            test-results/integration/
+            playwright-report/
+          retention-days: 7
+
   build:
-    needs: [format, lint, typecheck, test]
+    needs: [format, lint, typecheck, test, integration]
     runs-on: ubuntu-latest
     if: "!contains(github.event.head_commit.message, '[skip ci]')"
     steps:

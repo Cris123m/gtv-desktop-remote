@@ -85,7 +85,7 @@ export interface InvokeContract {
   deviceRemove: { args: [string]; res: SavedDevice[] };
   deviceReset: { args: []; res: DeviceState };
   deviceStartPairing: { args: [string]; res: DeviceState };
-  devicePair: { args: [PairingRequest]; res: DeviceState };
+  devicePair: { args: [PairingRequest]; res: undefined };
   deviceConnect: { args: [string]; res: DeviceState };
   deviceDisconnect: { args: []; res: DeviceState };
   deviceCommand: { args: [CommandDispatchRequest]; res: undefined };

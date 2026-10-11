@@ -224,5 +224,30 @@ describe('AndroidTvCertStore — Google TV non-regression gate', () => {
     it('is a no-op if files are already gone', async () => {
       await expect(store.clear('mac1')).resolves.toBeUndefined();
     });
+
+    it('forgets a migrated identity without touching another device or user files', async () => {
+      fs = makeFakeFs({
+        [`${STATE_DIR}/192.0.2.1.cert.pem`]: 'forgotten-cert',
+        [`${STATE_DIR}/192.0.2.1.key.pem`]: 'forgotten-key',
+        [`${STATE_DIR}/other.cert.pem`]: 'other-cert',
+        [`${STATE_DIR}/other.key.pem`]: 'other-key',
+        [`${STATE_DIR}/notes.txt`]: 'user-data',
+      });
+      store = new AndroidTvCertStore(fs, paths, logger, generator);
+      await store.migrate('192.0.2.1', 'AA:BB:CC');
+      await store.clear('AA:BB:CC');
+      expect(fs.dump()).toEqual({
+        [`${STATE_DIR}/other.cert.pem`]: 'other-cert',
+        [`${STATE_DIR}/other.key.pem`]: 'other-key',
+        [`${STATE_DIR}/notes.txt`]: 'user-data',
+      });
+      expect(await store.loadOrCreate('AA:BB:CC')).toEqual(FAKE_PEM);
+      expect(generator).toHaveBeenCalledOnce();
+    });
+
+    it('does not hide filesystem failures during authorization deletion', async () => {
+      vi.spyOn(fs, 'rm').mockRejectedValueOnce(new Error('permission denied'));
+      await expect(store.clear('mac1')).rejects.toThrow('permission denied');
+    });
   });
 });
