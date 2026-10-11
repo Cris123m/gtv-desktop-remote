@@ -46,6 +46,7 @@ Teardown closes the actual Electron app, emulator TLS listeners/sockets and loop
 - Tab and Shift+Tab cancel shortcut capture, restore native shortcut ownership and move focus after asynchronous restoration; deliberate recorder re-entry pauses ownership again.
 - Native fixture JSON is published by exclusive sibling-file creation and atomic rename. Failed publication preserves complete prior state and cannot delete a competing file.
 - IME metadata is emitted only when negotiated. Restored text setup waits for a real ordered ping response after metadata, not merely connection readiness; stale counters still fail the independent TV oracle.
+- Coalescing writes the remote-start and negotiated IME frames together; fragmentation splits the complete transmission. Text acceptance still requires both frames to be decoded and their metadata consumed, rather than merely a successful connection.
 - Native quit is checked through the real child-process handle captured while Electron is live. Teardown does not query Playwright's disposed process channel after exit, and setup failures retain sanitized diagnostics.
 
 ## Coverage matrix

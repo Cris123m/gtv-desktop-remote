@@ -103,9 +103,14 @@ for (const fault of [
   test(`WIRE-${fault}: real framed transport behavior and recovery`, async ({ harness: h }) => {
     const device = await h.pair();
     await h.api('disconnect');
+    await h.tv.waitFor((s) => !s.connected);
     await h.tv.setFault(fault);
     if (fault === 'fragment' || fault === 'coalesce') {
       expect((await h.api('connect', device.id)).status).toBe('connected');
+      // Connection readiness precedes IME metadata; finish ordered fixture delivery first.
+      const pingReplies = h.tv.snapshot().pingReplies;
+      h.tv.sendPing();
+      await h.tv.waitFor((s) => s.pingReplies === pingReplies + 1);
       await h.api('sendText', 'wire 世界');
       await h.tv.waitFor((s) => s.text === 'wire 世界');
     } else {
