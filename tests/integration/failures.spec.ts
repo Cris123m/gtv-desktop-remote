@@ -142,23 +142,41 @@ test('RESET: cancel preserves identity, confirm deletes saved and legacy credent
   harness: h,
 }) => {
   await h.pair();
+  const devices = (await h.api('bootstrap')).devices;
+  expect(devices).toHaveLength(1);
+  const certificate = await h.certificate();
+  const reset = h.page.getByRole('button', { name: 'Reset App State', exact: true });
   await h.page.getByRole('button', { name: 'Devices', exact: true }).click();
-  h.page.once('dialog', (dialog) => dialog.dismiss());
-  await h.page.getByRole('button', { name: 'Reset App State', exact: true }).click();
-  expect((await h.api('bootstrap')).devices).toHaveLength(1);
+  // Fixture only the OS confirmation decision; clicks, reset IPC and storage stay real.
+  // CDP dismissal does not reliably restore Electron's native window focus.
+  await h.page.evaluate(() => {
+    window.confirm = () => false;
+  });
+  await reset.click();
+  expect((await h.api('bootstrap')).devices).toEqual(devices);
+  expect(await h.certificate()).toBe(certificate);
   const legacy = path.join(h.profile, 'legacy', 'GTV Desktop Remote');
   await mkdir(path.join(legacy, 'androidtvremote'), { recursive: true });
   await writeFile(path.join(legacy, 'devices.json'), '[]');
   await writeFile(path.join(legacy, 'androidtvremote', 'old.key.pem'), 'SYNTHETIC OLD CREDENTIAL');
-  h.page.once('dialog', (dialog) => dialog.accept());
-  await h.page.getByRole('button', { name: 'Reset App State', exact: true }).click();
+  await h.page.evaluate(() => {
+    window.confirm = () => true;
+  });
+  await reset.click();
   await expect.poll(async () => (await h.api('bootstrap')).devices.length).toBe(0);
-  expect(
-    (await readdir(path.join(h.profile, 'androidtvremote')).catch(() => [])).filter((name) =>
-      name.endsWith('.pem')
-    )
-  ).toHaveLength(0);
-  await expect(access(path.join(legacy, 'androidtvremote'))).rejects.toThrow();
+  const certificateFiles = await readdir(path.join(h.profile, 'androidtvremote')).catch(
+    (error: NodeJS.ErrnoException) => {
+      if (error.code !== 'ENOENT') throw error;
+      return [];
+    }
+  );
+  expect(certificateFiles.some((name) => name.endsWith('.pem'))).toBe(false);
+  await expect(access(path.join(legacy, 'androidtvremote'))).rejects.toMatchObject({
+    code: 'ENOENT',
+  });
+  await expect(access(path.join(legacy, 'devices.json'))).rejects.toMatchObject({
+    code: 'ENOENT',
+  });
 });
 
 test('METRICS-BURST: actual renderer input saturates queue and records drops with terminal lifecycle', async ({

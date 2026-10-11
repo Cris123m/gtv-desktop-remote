@@ -332,12 +332,10 @@ export class TvEmulator extends EventEmitter {
                 throw new Error('remote active capabilities mismatch');
               this.model.state.ready = true;
               stage = 2;
-              this.send(
-                socket,
-                service,
-                { remoteStart: { started: this.model.state.powered } },
-                this.imeMessage()
-              );
+              this.send(socket, service, {
+                remoteStart: { started: this.model.state.powered },
+              });
+              if (negotiatedFeatures & 4) this.send(socket, service, this.imeMessage());
             } else if (stage !== 2) throw new Error('remote message before handshake');
             else {
               const operations = Object.keys(message).filter((key) => key.startsWith('remote'));

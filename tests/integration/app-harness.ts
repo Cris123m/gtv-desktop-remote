@@ -1,3 +1,4 @@
+import type { ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import {
   mkdtemp,
@@ -71,6 +72,7 @@ async function publishFixtureJson(target: string, value: unknown) {
 
 export class AppHarness {
   app!: ElectronApplication;
+  appProcess?: ChildProcess;
   page!: Page;
   readonly configPath: string;
   constructor(
@@ -146,6 +148,8 @@ export class AppHarness {
       },
       timeout: 30_000,
     });
+    // Playwright disposes its process channel on native quit; retain the real child handle.
+    this.appProcess = this.app.process();
     this.page = await this.app.firstWindow();
     await this.app.evaluate(({ app, BrowserWindow, globalShortcut }) => {
       const fixture = globalThis as typeof globalThis & NativeObservations;
@@ -333,7 +337,7 @@ export const test = base.extend<{ harness: AppHarness }>({
       try {
         if (harness?.app) {
           try {
-            const live = harness.app.process().exitCode === null;
+            const live = harness.appProcess?.exitCode === null;
             if (harness.page && failed) {
               await mkdir(info.outputDir, { recursive: true });
               if (live)
@@ -371,7 +375,7 @@ export const test = base.extend<{ harness: AppHarness }>({
                 .tracing.stop()
                 .catch(() => undefined);
           } finally {
-            if (harness.app.process().exitCode === null)
+            if (!harness.appProcess || harness.appProcess.exitCode === null)
               await harness.app.close().catch(() => undefined);
             if (failed) {
               await cp(path.join(profile, 'videos'), info.outputPath('videos'), {

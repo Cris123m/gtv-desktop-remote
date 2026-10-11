@@ -94,7 +94,9 @@ test('WIRE-CAPABILITY-ABSENCE: server negotiation without IME does not corrupt r
 }) => {
   const device = await h.pair();
   await h.api('disconnect');
+  await h.tv.waitFor((s) => !s.connected);
   h.tv.setCapabilities(3);
+  const limitedTraceStart = h.tv.traces.length;
   expect((await h.api('connect', device.id)).status).toBe('connected');
   // Adapter advertises a static app capability; assert current user-visible contract rather than hiding the feature in a test.
   expect((await h.api('capabilities')).textInput).toBe(true);
@@ -105,11 +107,26 @@ test('WIRE-CAPABILITY-ABSENCE: server negotiation without IME does not corrupt r
     issuedAt: Date.now(),
   });
   await h.tv.waitFor((s) => s.cursor.x === 3);
+  expect(
+    h.tv.traces
+      .slice(limitedTraceStart)
+      .filter((entry) => entry.direction === 'tx' && entry.message === 'remoteImeBatchEdit')
+  ).toHaveLength(0);
   await h.api('disconnect');
+  await h.tv.waitFor((s) => !s.connected);
   h.tv.setCapabilities(623);
   expect((await h.api('connect', device.id)).status).toBe('connected');
-  await h.api('sendText', 'IME restored');
-  await h.tv.waitFor((s) => s.text === 'IME restored');
+  // connect() resolves on remoteStart, before the separately framed IME metadata is necessarily
+  // received. A ping queued after that metadata proves the real client consumed the ordered stream.
+  const pingReplies = h.tv.snapshot().pingReplies;
+  h.tv.sendPing();
+  await h.tv.waitFor((s) => s.pingReplies === pingReplies + 1);
+  const beforeText = h.tv.snapshot();
+  await h.api('sendText', 'IME restored 世界 🎬 é');
+  const restored = await h.tv.waitFor((s) => s.text === 'IME restored 世界 🎬 é');
+  expect(restored.imeCounter).toBe(beforeText.imeCounter + 1);
+  expect(restored.fieldCounter).toBe(beforeText.fieldCounter);
+  expect(restored.errors).toEqual([]);
 });
 
 test('VOICE-GETUSERMEDIA-DENIAL: actual Chromium native permission refusal tears down capture and retry succeeds', async ({
