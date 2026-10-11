@@ -12,3 +12,29 @@ export function decodeDnsSdValue(value: string): string {
       hex !== undefined ? String.fromCharCode(parseInt(hex, 16)) : (character ?? '\\')
   );
 }
+
+/**
+ * Parse one TXT-record line of `dns-sd -L` output into key/value pairs.
+ * Values may contain raw (unescaped) whitespace — real TVs publish names like
+ * `fn=Televize\ v<NBSP>obývaku` — so entries are split only where a whitespace
+ * run is followed by the next `key=` token.
+ */
+export function parseDnsSdTxtLine(line: string): Record<string, string> {
+  const txt: Record<string, string> = {};
+
+  for (const entry of line.trim().split(/(?<!\\)\s+(?=[A-Za-z0-9_-]+=)/)) {
+    const separator = entry.indexOf('=');
+    if (separator <= 0) {
+      continue;
+    }
+
+    const key = entry.slice(0, separator);
+    if (!/^[A-Za-z0-9_-]+$/.test(key)) {
+      continue;
+    }
+
+    txt[key] = decodeDnsSdValue(entry.slice(separator + 1));
+  }
+
+  return txt;
+}

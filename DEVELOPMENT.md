@@ -38,6 +38,13 @@ This starts:
 yarn typecheck
 ```
 
+For dependency upgrades, run both `yarn typecheck` and `yarn lint` in addition to the
+behavioral test suite. Compile-time IPC parity checks use underscore-prefixed constants
+without dummy `void` expressions; the lint configuration already permits those names.
+Type test doubles with `Mock<ProductionFunction>` and `vi.fn<ProductionFunction>()`
+rather than `ReturnType<typeof vi.fn>` so callable signatures remain precise across
+Vitest versions.
+
 ## Local Build
 
 Build the renderer and Electron bundles without packaging:
@@ -129,6 +136,10 @@ This is intentional so short navigation bursts remain responsive while sustained
 - Renderer source: `src/renderer`
 - Electron main and preload source: `src/main`
 - Shared cross-process types: `src/shared`
+- DNS-SD TXT parsing and presentation decoding: `src/backend/discovery/dnsSdEncoding.ts`.
+  TXT values are decoded once, and raw whitespace stays within a value until the
+  next key boundary. Native browse instance names are already raw UTF-8 and are
+  never presentation-decoded, including when used as a fallback device name.
 - Packaging output: `release`
 
 ## Release Workflow

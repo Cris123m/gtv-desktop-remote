@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 
-import { decodeDnsSdValue } from '../../backend/discovery/dnsSdEncoding';
+import { parseDnsSdTxtLine } from '../../backend/discovery/dnsSdEncoding';
 import type { DiscoveredDevice } from '../../shared/types';
 import { record } from '../capture';
 
@@ -102,25 +102,6 @@ async function browseServiceInstances(serviceType: string, timeoutMs = 2500): Pr
   return [...instances];
 }
 
-function parseTxtRecord(line: string): Record<string, string> {
-  const txt: Record<string, string> = {};
-  const matches = line.match(/(?:^|\s)([A-Za-z0-9_-]+)=((?:\\.|[^\s])*)/g) ?? [];
-
-  for (const entry of matches) {
-    const trimmed = entry.trim();
-    const separator = trimmed.indexOf('=');
-    if (separator === -1) {
-      continue;
-    }
-
-    const key = trimmed.slice(0, separator);
-    const value = trimmed.slice(separator + 1);
-    txt[key] = decodeDnsSdValue(value);
-  }
-
-  return txt;
-}
-
 async function resolveService(
   instanceName: string,
   serviceType: string
@@ -140,7 +121,7 @@ async function resolveService(
     }
 
     if (line.includes('=')) {
-      txt = { ...txt, ...parseTxtRecord(line) };
+      txt = { ...txt, ...parseDnsSdTxtLine(line) };
     }
   }
 
