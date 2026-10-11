@@ -1,6 +1,8 @@
 dist/
 dist-electron/
 release/
+test-results/
+playwright-report/
 node_modules/
 build/
 public/

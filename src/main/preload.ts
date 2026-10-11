@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron';
 
 import type { DesktopApi } from '../shared/desktopApi';
 import { EVENT_CHANNELS, INVOKE_CHANNELS } from '../shared/ipcContract';
+import type { AppPreferences, PreferenceChange, PreferenceResult } from '../shared/preferences';
 import type {
   BootstrapState,
   CommandDispatchRequest,
@@ -17,6 +18,11 @@ import type {
 } from '../shared/types';
 
 const api = {
+  getPreferences: (): Promise<AppPreferences> => ipcRenderer.invoke(INVOKE_CHANNELS.preferencesGet),
+  changePreference: (change: PreferenceChange): Promise<PreferenceResult> =>
+    ipcRenderer.invoke(INVOKE_CHANNELS.preferencesChange, change),
+  setShortcutCapture: (recording: boolean): Promise<PreferenceResult> =>
+    ipcRenderer.invoke(INVOKE_CHANNELS.preferencesShortcutCapture, recording),
   bootstrap: (): Promise<BootstrapState> => ipcRenderer.invoke(INVOKE_CHANNELS.deviceBootstrap),
   scanDevices: (): Promise<DiscoveredDevice[]> => ipcRenderer.invoke(INVOKE_CHANNELS.deviceScan),
   saveDevice: (draft: DeviceDraft): Promise<SavedDevice[]> =>
@@ -26,7 +32,7 @@ const api = {
   resetState: (): Promise<DeviceState> => ipcRenderer.invoke(INVOKE_CHANNELS.deviceReset),
   startPairing: (deviceId: string): Promise<DeviceState> =>
     ipcRenderer.invoke(INVOKE_CHANNELS.deviceStartPairing, deviceId),
-  pair: (request: PairingRequest): Promise<DeviceState> =>
+  pair: (request: PairingRequest): Promise<void> =>
     ipcRenderer.invoke(INVOKE_CHANNELS.devicePair, request),
   connect: (deviceId: string): Promise<DeviceState> =>
     ipcRenderer.invoke(INVOKE_CHANNELS.deviceConnect, deviceId),

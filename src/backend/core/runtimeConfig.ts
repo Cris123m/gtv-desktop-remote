@@ -20,6 +20,7 @@ export interface IRuntimeConfig {
    * end-to-end.
    */
   readonly devUpdaterEnabled: boolean;
+  readonly integrationConfigPath?: string;
 }
 
 /** Build a config that reads from `process.env`. Used by production wiring
@@ -28,6 +29,7 @@ export interface IRuntimeConfig {
 export function createNodeRuntimeConfig(env: NodeJS.ProcessEnv = process.env): IRuntimeConfig {
   return {
     devUpdaterEnabled: env.GTV_UPDATER_DEV === '1',
+    ...(env.GTV_INTEGRATION_CONFIG ? { integrationConfigPath: env.GTV_INTEGRATION_CONFIG } : {}),
   };
 }
 
@@ -38,6 +40,9 @@ export function createNodeRuntimeConfig(env: NodeJS.ProcessEnv = process.env): I
 export function createRuntimeConfig(partial: Partial<IRuntimeConfig> = {}): IRuntimeConfig {
   return {
     devUpdaterEnabled: partial.devUpdaterEnabled ?? false,
+    ...(partial.integrationConfigPath
+      ? { integrationConfigPath: partial.integrationConfigPath }
+      : {}),
   };
 }
 

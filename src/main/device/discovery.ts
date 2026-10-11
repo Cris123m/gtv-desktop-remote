@@ -1,8 +1,10 @@
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 
+import { parseDnsSdTxtLine } from '../../backend/discovery/dnsSdEncoding';
 import type { DiscoveredDevice } from '../../shared/types';
 import { record } from '../capture';
+import { assertLoopbackHost, integrationEnvironment } from '../integrationEnvironment';
 
 interface ResolvedService {
   instanceName: string;
@@ -10,10 +12,6 @@ interface ResolvedService {
   host?: string;
   port?: number;
   txt: Record<string, string>;
-}
-
-function decodeDnsSdValue(value: string): string {
-  return value.replace(/\\032/g, ' ').replace(/\\ /g, ' ').replace(/\\\\/g, '\\');
 }
 
 function buildDiscoveredId(host: string, name: string): string {
@@ -31,8 +29,11 @@ function buildDeviceFingerprint(name: string, model?: string): string | undefine
 
 function runDnsSd(args: string[], timeoutMs: number): Promise<string> {
   return new Promise((resolve, reject) => {
-    const child = spawn('dns-sd', args, {
+    const child = spawn(integrationEnvironment?.discoveryCommand ?? 'dns-sd', args, {
       stdio: ['ignore', 'pipe', 'pipe'],
+      env: integrationEnvironment
+        ? { ...process.env, GTV_DNS_SD_STATE: integrationEnvironment.discoveryStatePath }
+        : process.env,
     });
 
     let stdout = '';
@@ -105,25 +106,6 @@ async function browseServiceInstances(serviceType: string, timeoutMs = 2500): Pr
   return [...instances];
 }
 
-function parseTxtRecord(line: string): Record<string, string> {
-  const txt: Record<string, string> = {};
-  const matches = line.match(/(?:^|\s)([A-Za-z0-9_-]+)=((?:\\.|[^\s])*)/g) ?? [];
-
-  for (const entry of matches) {
-    const trimmed = entry.trim();
-    const separator = trimmed.indexOf('=');
-    if (separator === -1) {
-      continue;
-    }
-
-    const key = trimmed.slice(0, separator);
-    const value = trimmed.slice(separator + 1);
-    txt[key] = decodeDnsSdValue(value);
-  }
-
-  return txt;
-}
-
 async function resolveService(
   instanceName: string,
   serviceType: string
@@ -143,7 +125,7 @@ async function resolveService(
     }
 
     if (line.includes('=')) {
-      txt = { ...txt, ...parseTxtRecord(line) };
+      txt = { ...txt, ...parseDnsSdTxtLine(line) };
     }
   }
 
@@ -172,6 +154,7 @@ async function resolveHostToIp(hostName: string): Promise<string | undefined> {
   for (const line of lines) {
     const match = /\s((?:\d{1,3}\.){3}\d{1,3})\s+\d+\s*$/.exec(line);
     if (match?.[1]) {
+      if (integrationEnvironment) assertLoopbackHost(match[1]);
       return match[1];
     }
   }
@@ -231,14 +214,14 @@ export async function discoverGoogleTvDevices(): Promise<DiscoveredDevice[]> {
       continue;
     }
 
-    const name = decodeDnsSdValue(service.instanceName);
+    const name = service.instanceName;
     devices.set(service.host, {
       id: buildDiscoveredId(service.host, name),
       name,
       host: service.host,
       networkHostName: service.hostName,
       remotePort: service.port,
-      pairingPort: 6467,
+      pairingPort: integrationEnvironment?.pairingPort ?? 6467,
       macAddress: service.txt.bt,
       deviceFingerprint: buildDeviceFingerprint(name),
       source: 'androidtvremote',

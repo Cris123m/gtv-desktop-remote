@@ -17,3 +17,5 @@ build
 **/**.log
 coverage
 captures
+/test-results/
+/playwright-report/

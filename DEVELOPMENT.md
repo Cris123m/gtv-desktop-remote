@@ -6,10 +6,10 @@ This document is for developers working on GTV Desktop Remote locally. It covers
 
 ## Prerequisites
 
-- macOS
+- macOS for the desktop app; Linux/Xvfb is supported for mandatory functional CI. Full local macOS IP-migration testing requires an operator-assigned `127.0.0.2` loopback alias; the runner never changes OS networking or skips that case.
 - Node.js with Corepack-enabled Yarn
-- A Google TV or Android TV device on the same local network for end-to-end testing
-- Android TV Remote Service available on the target device
+- A Google TV/Android TV on the same LAN only for physical-device interoperability checks; automated functional regression tests require no TV.
+- Android TV Remote Service on that physical device when performing hardware checks.
 
 ## Install Dependencies
 
@@ -52,6 +52,23 @@ Build the renderer and Electron bundles without packaging:
 ```bash
 yarn build
 ```
+
+## Functional Electron Regression Tests
+
+Install the pinned runner dependencies and its video encoder once, build the real app, then run:
+
+```sh
+yarn install --immutable
+yarn playwright install ffmpeg
+yarn build
+yarn test:integration
+```
+
+Linux needs Xvfb/Xauth, ZIP/unzip and Electron display/audio libraries; use `xvfb-run -a yarn test:integration`. `yarn typecheck:integration` checks runner, native fixtures and emulator, and is also included in `yarn typecheck`.
+
+The runner launches the actual package entry and built renderer, isolates each profile under the OS temporary directory, bootstraps explicit client-certificate trust after an initial refused pairing attempt, and uses genuine TLS plus an independent stateful Google TV model. Chromium fake-device WAV capture exercises production microphone/PCM code. Updates use loopback HTTP and real sandbox ZIP/install/rollback effects, never GitHub, `/Applications`, a live TV or user login/microphone settings.
+
+See [the complete scenario matrix and fidelity boundaries](tests/integration/README.md). Mandatory CI runs the same suite under Xvfb and uploads failure-only traces, screenshots, video and sanitized protocol diagnostics; final build depends on the functional job. This does not certify firmware interoperability or physical macOS permissions/signing/menu-bar behavior.
 
 ## Packaging
 
@@ -131,11 +148,39 @@ This is intentional so short navigation bursts remain responsive while sustained
 - Saved pairing state lives in the app data directory
 - Text input support depends on the capabilities exposed by the current TV app / input surface
 
+### Pairing regression checks
+
+The Android TV bridge constructs the pairing client with a TLS transport error
+listener before connecting, so refused connections reject rather than leave the
+renderer busy. Failed and cleared pairing sessions close their client.
+Certificate-bound hash validation remains enabled.
+
+`src/backend/pairing/__tests__/createPairingClient.test.ts` exercises the actual
+client over local TLS: configuration and secret exchange, independently computed
+RSA/SHA-256 secret bytes, rejected checksum, refused port, and unanswered request.
+
+```sh
+node .yarn/releases/yarn-4.18.0.cjs test src/backend/pairing/__tests__/createPairingClient.test.ts
+```
+
+For an Electron smoke check, request pairing with `127.0.0.1` while no service is
+listening on port 6467. The failure must clear busy state and allow another attempt.
+This checks lifecycle recovery, not real-device compatibility.
+
+To investigate a device-specific certificate-hash failure, collect the client
+and TV public certificates from the same failed TLS session, the exact displayed
+code, and the TV model/firmware. Public certificates are sufficient; never share
+private keys. A screenshot code alone cannot reproduce the certificate-bound hash.
+
 ## Repository Notes
 
 - Renderer source: `src/renderer`
 - Electron main and preload source: `src/main`
 - Shared cross-process types: `src/shared`
+- DNS-SD TXT parsing and presentation decoding: `src/backend/discovery/dnsSdEncoding.ts`.
+  TXT values are decoded once, and raw whitespace stays within a value until the
+  next key boundary. Native browse instance names are already raw UTF-8 and are
+  never presentation-decoded, including when used as a fallback device name.
 - Packaging output: `release`
 
 ## Release Workflow

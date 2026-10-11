@@ -6,7 +6,7 @@ import { defineConfig } from 'vitest/config';
  * jsdom + @testing-library/react. The two projects share one runner so a
  * single `npm test` invocation covers both halves.
  *
- * Backend project (`src/backend/`):
+ * Backend project (`src/backend/` and `tests/unit/main/`):
  *   - Node environment, deterministic, no DOM.
  *   - Coverage thresholds ratchet per wave per REFACTOR_PLAN.md §4.
  *
@@ -47,7 +47,7 @@ export default defineConfig({
       {
         test: {
           name: 'backend',
-          include: ['src/backend/**/*.{test,spec}.ts'],
+          include: ['src/backend/**/*.{test,spec}.ts', 'tests/unit/main/**/*.test.ts'],
           environment: 'node',
           globals: false,
           clearMocks: true,

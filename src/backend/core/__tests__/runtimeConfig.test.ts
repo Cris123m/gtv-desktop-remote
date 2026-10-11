@@ -26,6 +26,16 @@ describe('createNodeRuntimeConfig', () => {
       expect(createNodeRuntimeConfig({ GTV_UPDATER_DEV: value }).devUpdaterEnabled).toBe(false);
     }
   });
+  it('carries the opt-in path without enabling the production development updater', () => {
+    expect(createNodeRuntimeConfig({ GTV_INTEGRATION_CONFIG: '/isolated/config.json' })).toEqual({
+      devUpdaterEnabled: false,
+      integrationConfigPath: '/isolated/config.json',
+    });
+    expect(
+      createRuntimeConfig({ integrationConfigPath: '/isolated/config.json' }).integrationConfigPath
+    ).toBe('/isolated/config.json');
+    expect(createNodeRuntimeConfig({}).integrationConfigPath).toBeUndefined();
+  });
 });
 
 describe('createRuntimeConfig (partial helper)', () => {

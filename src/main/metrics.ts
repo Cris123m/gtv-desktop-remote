@@ -348,7 +348,8 @@ export class CommandMetricsStore implements IMetricsRecorder {
 
     const record: CommandMetricsRecord = {
       ...request,
-      updatedAt: request.issuedAt,
+      // Queued requests may have been issued long before main-process admission.
+      updatedAt: Date.now(),
       status: 'pending',
       lastStage: 'ipc_received',
     };
@@ -363,15 +364,25 @@ export class CommandMetricsStore implements IMetricsRecorder {
       return;
     }
 
-    const records = Array.from(this.commands.values()).sort(
-      (left, right) => left.updatedAt - right.updatedAt
-    );
-    while (records.length > MAX_RECENT_COMMANDS) {
-      const stale = records.shift();
-      if (!stale) {
-        break;
+    // Bound recent history, not the cumulative counters. Prefer terminal records
+    // so a renderer-drop burst cannot evict the command awaiting its socket write.
+    let oldest: CommandMetricsRecord | undefined;
+    let oldestTerminal: CommandMetricsRecord | undefined;
+    for (const record of this.commands.values()) {
+      if (!oldest || record.updatedAt < oldest.updatedAt) {
+        oldest = record;
       }
+      if (
+        record.status !== 'pending' &&
+        (!oldestTerminal || record.updatedAt < oldestTerminal.updatedAt)
+      ) {
+        oldestTerminal = record;
+      }
+    }
 
+    // Even an all-pending workload must remain bounded.
+    const stale = oldestTerminal ?? oldest;
+    if (stale) {
       this.commands.delete(stale.id);
     }
   }
