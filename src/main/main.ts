@@ -1,17 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 
-import {
-  app,
-  BrowserWindow,
-  dialog,
-  globalShortcut,
-  ipcMain,
-  Menu,
-  nativeImage,
-  systemPreferences,
-  Tray,
-} from 'electron';
+import { app, BrowserWindow, globalShortcut, ipcMain, Menu, nativeImage, Tray } from 'electron';
 
 import { showOnboardingOnce } from '../backend/app/onboarding';
 import { createNodeFileSystem } from '../backend/core/fileSystem';
@@ -27,6 +18,15 @@ import type {
 
 import { captureIpc, closeCapture, initCapture } from './capture';
 import { GoogleTvAdapter } from './device/googleTvAdapter';
+import {
+  getLogin,
+  integrationEnvironment,
+  loginSupported,
+  microphoneGranted,
+  recordIntegrationTrayMenu,
+  setLogin,
+  showMessageBox,
+} from './integrationEnvironment';
 import { getLoggerPath, logError, logInfo } from './logger';
 import { commandMetricsStore } from './metrics';
 import {
@@ -57,11 +57,9 @@ const preferences = new PreferencesController(
     unregister: (shortcut) => {
       globalShortcut.unregister(shortcut);
     },
-    loginSupported: process.platform === 'darwin' && app.isPackaged,
-    getLogin: () => app.getLoginItemSettings().openAtLogin,
-    setLogin: (enabled) => {
-      app.setLoginItemSettings({ openAtLogin: enabled });
-    },
+    loginSupported: loginSupported(),
+    getLogin,
+    setLogin,
   }
 );
 const hasSingleInstanceLock = app.requestSingleInstanceLock();
@@ -172,6 +170,8 @@ async function createWindow(): Promise<BrowserWindow> {
       sandbox: false,
     },
   });
+  // Renderer bootstrap IPC can arrive while loadFile is still pending.
+  windowRef = window;
 
   if (process.platform === 'darwin') {
     window.setWindowButtonVisibility(false);
@@ -187,7 +187,7 @@ async function createWindow(): Promise<BrowserWindow> {
     window.webContents.send('updater:statusChanged', status);
   });
 
-  if (app.isPackaged) {
+  if (app.isPackaged || integrationEnvironment) {
     await window.loadFile(getRendererEntryPath());
   } else {
     await window.loadURL('http://localhost:5173');
@@ -251,12 +251,14 @@ async function toggleWindow() {
 function buildContextMenu() {
   return Menu.buildFromTemplate([
     {
+      id: 'show-remote',
       label: 'Show Remote',
       click: () => {
         void showWindow();
       },
     },
     {
+      id: 'hide-remote',
       label: 'Hide Remote',
       click: () => {
         hideWindow();
@@ -264,6 +266,7 @@ function buildContextMenu() {
     },
     { type: 'separator' },
     {
+      id: 'check-updates',
       label: 'Check for Updates…',
       click: () => {
         void handleManualUpdateCheckFromMenu();
@@ -271,6 +274,7 @@ function buildContextMenu() {
     },
     { type: 'separator' },
     {
+      id: 'quit',
       label: 'Quit',
       click: () => {
         app.quit();
@@ -334,7 +338,7 @@ function buildApplicationMenu() {
 
 async function showUpdaterResultDialog(status: UpdaterStatus) {
   if (status.stage === 'failed') {
-    await dialog.showMessageBox({
+    await showMessageBox({
       type: 'warning',
       buttons: ['OK'],
       defaultId: 0,
@@ -345,7 +349,7 @@ async function showUpdaterResultDialog(status: UpdaterStatus) {
   }
 
   if (status.updateInstallable) {
-    const choice = await dialog.showMessageBox({
+    const choice = await showMessageBox({
       type: 'info',
       buttons: ['Update now', 'Later'],
       defaultId: 0,
@@ -363,7 +367,7 @@ async function showUpdaterResultDialog(status: UpdaterStatus) {
     return;
   }
 
-  await dialog.showMessageBox({
+  await showMessageBox({
     type: 'info',
     buttons: ['OK'],
     defaultId: 0,
@@ -387,7 +391,7 @@ async function showFirstLaunchHint(activeShortcut: string | null) {
         if (process.platform === 'darwin') {
           app.focus({ steal: true });
         }
-        const result = await dialog.showMessageBox({
+        const result = await showMessageBox({
           type: 'info',
           title: 'Welcome to GTV Remote',
           message: 'Your remote lives in the menu bar',
@@ -417,15 +421,17 @@ async function bootstrapApp() {
   buildApplicationMenu();
   if (process.platform === 'darwin') {
     app.dock?.hide();
-    const micGranted = await systemPreferences.askForMediaAccess('microphone');
-    if (!micGranted) {
-      await logInfo('main', 'Microphone access not granted — voice assistant will be unavailable');
-    }
+  }
+  const micGranted = await microphoneGranted();
+  if (!micGranted) {
+    await logInfo('main', 'Microphone access not granted — voice assistant will be unavailable');
   }
   windowRef = await createWindow();
   tray = new Tray(createTrayImage());
   tray.setToolTip(appName);
-  tray.setContextMenu(buildContextMenu());
+  const trayMenu = buildContextMenu();
+  tray.setContextMenu(trayMenu);
+  if (integrationEnvironment) recordIntegrationTrayMenu(trayMenu);
   tray.on('click', () => {
     void toggleWindow();
   });
@@ -461,91 +467,113 @@ if (!hasSingleInstanceLock) {
 
 function registerIpc() {
   const ch = INVOKE_CHANNELS;
-  ipcMain.handle(ch.preferencesGet, (event) => {
+  const handle = <Args extends unknown[], Result>(
+    channel: string,
+    listener: (event: Electron.IpcMainInvokeEvent, ...args: Args) => Result
+  ): ((event: Electron.IpcMainInvokeEvent, ...args: Args) => Result) => {
+    const guardedListener = (event: Electron.IpcMainInvokeEvent, ...args: Args): Result => {
+      if (
+        integrationEnvironment &&
+        (event.sender !== windowRef?.webContents ||
+          event.senderFrame !== event.sender.mainFrame ||
+          event.senderFrame.url !== pathToFileURL(getRendererEntryPath()).href)
+      )
+        throw new Error('Untrusted integration renderer request');
+      return listener(event, ...args);
+    };
+    ipcMain.handle(channel, guardedListener);
+    return guardedListener;
+  };
+  handle(ch.preferencesGet, (event) => {
     if (event.sender !== windowRef?.webContents) throw new Error('Untrusted preferences request');
     return preferences.refresh();
   });
-  ipcMain.handle(ch.preferencesChange, (event, change: unknown) => {
+  handle(ch.preferencesChange, (event, change: unknown) => {
     if (event.sender !== windowRef?.webContents) throw new Error('Untrusted preferences request');
     return preferences.change(change);
   });
-  ipcMain.handle(ch.preferencesShortcutCapture, (event, recording: unknown) => {
+  handle(ch.preferencesShortcutCapture, (event, recording: unknown) => {
     if (event.sender !== windowRef?.webContents) throw new Error('Untrusted preferences request');
     return preferences.setShortcutCapture(recording);
   });
-  ipcMain.handle(
+  handle(
     ch.deviceBootstrap,
     captureIpc(ch.deviceBootstrap, async () => adapter.getBootstrapState())
   );
-  ipcMain.handle(
+  handle(
     ch.deviceScan,
     captureIpc(ch.deviceScan, async () => adapter.scanForDevices())
   );
-  ipcMain.handle(
+  handle(
     ch.deviceSave,
     captureIpc(ch.deviceSave, async (_event: unknown, draft: DeviceDraft) =>
       adapter.saveDevice(draft)
     )
   );
-  ipcMain.handle(
+  handle(
     ch.deviceRemove,
     captureIpc(ch.deviceRemove, async (_event: unknown, deviceId: string) =>
       adapter.removeDevice(deviceId)
     )
   );
-  ipcMain.handle(
+  handle(
     ch.deviceReset,
     captureIpc(ch.deviceReset, async () => adapter.resetState())
   );
-  ipcMain.handle(
+  handle(
     ch.deviceStartPairing,
     captureIpc(ch.deviceStartPairing, async (_event: unknown, deviceId: string) =>
       adapter.startPairing(deviceId)
     )
   );
-  ipcMain.handle(
+  handle(
     ch.devicePair,
-    captureIpc(ch.devicePair, async (_event: unknown, request: PairingRequest) =>
-      adapter.pair(request)
-    )
+    captureIpc(ch.devicePair, async (_event: unknown, request: PairingRequest) => {
+      await adapter.pair(request);
+      return undefined;
+    })
   );
-  ipcMain.handle(
+  handle(
     ch.deviceConnect,
     captureIpc(ch.deviceConnect, async (_event: unknown, deviceId: string) =>
       adapter.connect(deviceId)
     )
   );
-  ipcMain.handle(
+  handle(
     ch.deviceDisconnect,
     captureIpc(ch.deviceDisconnect, async () => adapter.disconnect())
   );
-  ipcMain.handle(
+  handle(
     ch.deviceCommand,
     captureIpc(ch.deviceCommand, async (_event: unknown, request: CommandDispatchRequest) => {
       commandMetricsStore.recordIpcReceived(request);
       return adapter.sendCommand(request);
     })
   );
-  ipcMain.handle(
+  handle(
     ch.metricsRendererDrop,
     captureIpc(ch.metricsRendererDrop, (_event: unknown, report: CommandDropReport) => {
       commandMetricsStore.recordRendererDrop(report);
       return Promise.resolve();
     })
   );
-  ipcMain.handle(
+  handle(
     ch.metricsSnapshot,
     captureIpc(ch.metricsSnapshot, () => Promise.resolve(commandMetricsStore.getSnapshot()))
   );
-  ipcMain.handle(
+  handle(
     ch.deviceText,
     captureIpc(ch.deviceText, async (_event: unknown, text: string) => adapter.sendText(text))
   );
-  ipcMain.handle(
+  handle(
     ch.deviceAssistantVoiceStart,
-    captureIpc(ch.deviceAssistantVoiceStart, async () => adapter.startAssistantVoice())
+    captureIpc(ch.deviceAssistantVoiceStart, async () => {
+      if (integrationEnvironment && !(await microphoneGranted()))
+        throw new Error('Microphone access denied');
+      return adapter.startAssistantVoice();
+    })
   );
-  ipcMain.handle(
+  handle(
     ch.deviceAssistantVoiceChunk,
     captureIpc(
       ch.deviceAssistantVoiceChunk,
@@ -553,39 +581,39 @@ function registerIpc() {
         adapter.sendAssistantVoiceChunk(sessionId, chunkBase64)
     )
   );
-  ipcMain.handle(
+  handle(
     ch.deviceAssistantVoiceStop,
     captureIpc(ch.deviceAssistantVoiceStop, async (_event: unknown, sessionId: number) =>
       adapter.stopAssistantVoice(sessionId)
     )
   );
-  ipcMain.handle(
+  handle(
     ch.deviceAssistantVoicePending,
     captureIpc(ch.deviceAssistantVoicePending, async () =>
       adapter.hasPendingAssistantVoiceSession()
     )
   );
-  ipcMain.handle(
+  handle(
     ch.deviceCapabilities,
     captureIpc(ch.deviceCapabilities, async () => adapter.getCapabilities())
   );
-  ipcMain.handle(
+  handle(
     ch.updaterCheck,
     captureIpc(ch.updaterCheck, async () => checkForUpdatesManually())
   );
-  ipcMain.handle(
+  handle(
     ch.updaterCheckBackground,
     captureIpc(ch.updaterCheckBackground, async () => checkForUpdatesInBackground())
   );
-  ipcMain.handle(
+  handle(
     ch.updaterStatus,
     captureIpc(ch.updaterStatus, async () => getUpdaterStatus())
   );
-  ipcMain.handle(
+  handle(
     ch.updaterInstall,
     captureIpc(ch.updaterInstall, async () => installAvailableUpdate())
   );
-  ipcMain.handle(
+  handle(
     ch.updaterRollback,
     captureIpc(ch.updaterRollback, async () => rollbackToPreviousVersion())
   );

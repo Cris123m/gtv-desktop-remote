@@ -32,7 +32,7 @@ const api = {
   resetState: (): Promise<DeviceState> => ipcRenderer.invoke(INVOKE_CHANNELS.deviceReset),
   startPairing: (deviceId: string): Promise<DeviceState> =>
     ipcRenderer.invoke(INVOKE_CHANNELS.deviceStartPairing, deviceId),
-  pair: (request: PairingRequest): Promise<DeviceState> =>
+  pair: (request: PairingRequest): Promise<void> =>
     ipcRenderer.invoke(INVOKE_CHANNELS.devicePair, request),
   connect: (deviceId: string): Promise<DeviceState> =>
     ipcRenderer.invoke(INVOKE_CHANNELS.deviceConnect, deviceId),

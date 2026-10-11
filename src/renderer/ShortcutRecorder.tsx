@@ -22,6 +22,8 @@ export function ShortcutRecorder(props: ShortcutRecorderProps) {
   const ready = useRef(false);
   const ending = useRef(false);
   const candidate = useRef<{ shortcut: string; code: string; key: string } | null>(null);
+  const button = useRef<HTMLButtonElement>(null);
+  const tabDirection = useRef<1 | -1 | null>(null);
   const [recording, setRecording] = useState(false);
   const [preview, setPreview] = useState('');
   const [feedback, setFeedback] = useState('');
@@ -48,6 +50,31 @@ export function ShortcutRecorder(props: ShortcutRecorderProps) {
     };
     // The session refs own cleanup independently of renders and callback identities.
   }, []);
+
+  useEffect(() => {
+    if (recording || tabDirection.current === null) return;
+    const direction = tabDirection.current;
+    tabDirection.current = null;
+    const recorder = button.current;
+    if (!recorder || document.activeElement !== recorder) return;
+
+    // Other settings controls are disabled until restoration completes. Move focus
+    // after that commit instead of letting native Tab wrap back into the recorder.
+    const controls = Array.from(
+      document.querySelectorAll<HTMLElement>('button, input, select, textarea, a[href], [tabindex]')
+    ).filter(
+      (control) =>
+        control.tabIndex >= 0 &&
+        !control.matches(':disabled') &&
+        !control.closest('[hidden], [inert]') &&
+        getComputedStyle(control).display !== 'none' &&
+        getComputedStyle(control).visibility !== 'hidden'
+    );
+    const index = controls.indexOf(recorder);
+    if (index < 0) return;
+    const next = controls[index + direction];
+    if (next) next.focus();
+  }, [recording]);
 
   async function start() {
     if (session.current || ending.current || props.disabled) return;
@@ -118,6 +145,7 @@ export function ShortcutRecorder(props: ShortcutRecorderProps) {
   return (
     <>
       <button
+        ref={button}
         id="global-shortcut"
         type="button"
         className="ui-settings-input"
@@ -137,7 +165,9 @@ export function ShortcutRecorder(props: ShortcutRecorderProps) {
         onKeyDown={(event) => {
           if (!recording && !session.current) return;
           if (event.key === 'Tab') {
+            event.preventDefault();
             event.stopPropagation();
+            tabDirection.current = event.shiftKey ? -1 : 1;
             void finish();
             return;
           }

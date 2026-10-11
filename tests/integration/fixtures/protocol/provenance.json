@@ -1,0 +1,33 @@
+{
+  "sources": [
+    {
+      "file": "remote.proto",
+      "url": "https://raw.githubusercontent.com/tronikos/androidtvremote2/main/src/androidtvremote2/remotemessage.proto",
+      "sha256": "717c0190cb794e3753900ec369bc724a4a7189961e90c7ab36c3d3c819fcdf98",
+      "retrieved": "2026-10-10",
+      "synthetic": false
+    },
+    {
+      "file": "pairing.proto",
+      "url": "https://raw.githubusercontent.com/louis49/androidtv-remote/main/src/pairing/pairingmessage.proto",
+      "sha256": "f42c6b9731d09a5a59951b95b5c6a9ca117ccfa78188c75aec1a8093413c3917",
+      "retrieved": "2026-10-10",
+      "synthetic": false
+    },
+    {
+      "file": "LICENSE-APACHE",
+      "url": "https://raw.githubusercontent.com/tronikos/androidtvremote2/main/LICENSE",
+      "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+      "retrieved": "2026-10-10",
+      "synthetic": false
+    },
+    {
+      "file": "LICENSE-MIT",
+      "url": "https://raw.githubusercontent.com/louis49/androidtv-remote/main/LICENSE",
+      "sha256": "8a84310851b9e3f68f7e1a44a185b30a38ecf8065fef21021c5f8f77371505d8",
+      "retrieved": "2026-10-10",
+      "synthetic": false
+    }
+  ],
+  "notes": "Unmodified independent schemas; remote inherits MIT louis49 schema and Apache-2.0 tronikos extensions. Synthetic vectors and TV model are not captures."
+}

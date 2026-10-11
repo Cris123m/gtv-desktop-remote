@@ -6,10 +6,10 @@ This document is for developers working on GTV Desktop Remote locally. It covers
 
 ## Prerequisites
 
-- macOS
+- macOS for the desktop app; Linux/Xvfb is supported for mandatory functional CI. Full local macOS IP-migration testing requires an operator-assigned `127.0.0.2` loopback alias; the runner never changes OS networking or skips that case.
 - Node.js with Corepack-enabled Yarn
-- A Google TV or Android TV device on the same local network for end-to-end testing
-- Android TV Remote Service available on the target device
+- A Google TV/Android TV on the same LAN only for physical-device interoperability checks; automated functional regression tests require no TV.
+- Android TV Remote Service on that physical device when performing hardware checks.
 
 ## Install Dependencies
 
@@ -52,6 +52,23 @@ Build the renderer and Electron bundles without packaging:
 ```bash
 yarn build
 ```
+
+## Functional Electron Regression Tests
+
+Install the pinned runner dependencies and its video encoder once, build the real app, then run:
+
+```sh
+yarn install --immutable
+yarn playwright install ffmpeg
+yarn build
+yarn test:integration
+```
+
+Linux needs Xvfb/Xauth, ZIP/unzip and Electron display/audio libraries; use `xvfb-run -a yarn test:integration`. `yarn typecheck:integration` checks runner, native fixtures and emulator, and is also included in `yarn typecheck`.
+
+The runner launches the actual package entry and built renderer, isolates each profile under the OS temporary directory, bootstraps explicit client-certificate trust after an initial refused pairing attempt, and uses genuine TLS plus an independent stateful Google TV model. Chromium fake-device WAV capture exercises production microphone/PCM code. Updates use loopback HTTP and real sandbox ZIP/install/rollback effects, never GitHub, `/Applications`, a live TV or user login/microphone settings.
+
+See [the complete scenario matrix and fidelity boundaries](tests/integration/README.md). Mandatory CI runs the same suite under Xvfb and uploads failure-only traces, screenshots, video and sanitized protocol diagnostics; final build depends on the functional job. This does not certify firmware interoperability or physical macOS permissions/signing/menu-bar behavior.
 
 ## Packaging
 

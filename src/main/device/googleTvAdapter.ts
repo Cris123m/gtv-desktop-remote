@@ -23,6 +23,7 @@ import type {
   PairingRequest,
   SavedDevice,
 } from '../../shared/types';
+import { assertLoopbackHost, integrationEnvironment } from '../integrationEnvironment';
 import { createNodeLogger, getAppDataPath, logError, logInfo } from '../logger';
 import { commandMetricsStore } from '../metrics';
 
@@ -36,6 +37,8 @@ const DEFAULT_STATE: DeviceState = {
 };
 
 function getLegacyUserDataPaths(): string[] {
+  if (integrationEnvironment)
+    return [getAppDataPath(), getAppDataPath('legacy', 'GTV Desktop Remote')];
   const appDataRoot = app.getPath('appData');
   return [getAppDataPath(), path.join(appDataRoot, 'GTV Desktop Remote')];
 }
@@ -131,6 +134,7 @@ export class GoogleTvAdapter implements DeviceAdapter {
   }
 
   async saveDevice(draft: DeviceDraft): Promise<SavedDevice[]> {
+    if (integrationEnvironment) assertLoopbackHost(draft.host);
     await logInfo('adapter', 'Saving device', { draft });
     const devices = await readDevices();
 
@@ -152,6 +156,11 @@ export class GoogleTvAdapter implements DeviceAdapter {
   async removeDevice(deviceId: string): Promise<SavedDevice[]> {
     await logInfo('adapter', 'Removing device', { deviceId });
     const devices = await readDevices();
+    const device = devices.find((item) => item.id === deviceId);
+    if (device) {
+      // Forget authorization before reporting a successful removal or clearing active state.
+      await androidTvRemoteBridge.forgetDevice(device.host, device.macAddress);
+    }
     const nextDevices = devices.filter((device) => device.id !== deviceId);
     await writeDevices(nextDevices);
 
@@ -184,6 +193,7 @@ export class GoogleTvAdapter implements DeviceAdapter {
   }
 
   async pair(request: PairingRequest): Promise<void> {
+    if (integrationEnvironment) assertLoopbackHost(request.host.trim());
     await logInfo('adapter', 'Starting pairing', { request: { ...request, code: '[redacted]' } });
     this.deviceState = {
       status: 'connecting',

@@ -1,0 +1,119 @@
+{
+  "provenance": "Synthetic, hand-derived from vendored field numbers and protobuf base-128 encoding; not generated with emulator or app codec.",
+  "vectors": [
+    {
+      "name": "pairing request independently corrected nested length",
+      "kind": "pairing",
+      "message": {
+        "protocolVersion": 2,
+        "status": 200,
+        "pairingRequest": { "serviceName": "info.kodono.assistant", "clientName": "interface web" }
+      },
+      "hex": "080210c80152260a15696e666f2e6b6f646f6e6f2e617373697374616e74120d696e7465726661636520776562",
+      "framedHex": "2d080210c80152260a15696e666f2e6b6f646f6e6f2e617373697374616e74120d696e7465726661636520776562"
+    },
+    {
+      "name": "pairing hexadecimal input options",
+      "kind": "pairing",
+      "message": {
+        "protocolVersion": 2,
+        "status": 200,
+        "pairingOption": {
+          "inputEncodings": [{ "type": 3, "symbolLength": 6 }],
+          "preferredRole": 1
+        }
+      },
+      "hex": "080210c801a201080a04080310061801",
+      "framedHex": "10080210c801a201080a04080310061801"
+    },
+    {
+      "name": "pairing input configuration",
+      "kind": "pairing",
+      "message": {
+        "protocolVersion": 2,
+        "status": 200,
+        "pairingConfiguration": { "encoding": { "type": 3, "symbolLength": 6 }, "clientRole": 1 }
+      },
+      "hex": "080210c801f201080a04080310061001",
+      "framedHex": "10080210c801f201080a04080310061001"
+    },
+    {
+      "name": "pairing request acknowledgement",
+      "kind": "pairing",
+      "message": {
+        "protocolVersion": 2,
+        "status": 200,
+        "pairingRequestAck": { "serverName": "TV" }
+      },
+      "hex": "080210c8015a040a025456",
+      "framedHex": "0b080210c8015a040a025456"
+    },
+    {
+      "name": "pairing configuration acknowledgement",
+      "kind": "pairing",
+      "message": { "protocolVersion": 2, "status": 200, "pairingConfigurationAck": {} },
+      "hex": "080210c801fa0100",
+      "framedHex": "08080210c801fa0100"
+    },
+    {
+      "name": "Unicode IME edit with independent field counters",
+      "kind": "remote",
+      "message": {
+        "remoteImeBatchEdit": {
+          "imeCounter": 1,
+          "fieldCounter": 2,
+          "editInfo": [{ "insert": 1, "textFieldStatus": { "value": "😀" } }]
+        }
+      },
+      "hex": "aa0110080110021a0a080112061a04f09f9880",
+      "framedHex": "13aa0110080110021a0a080112061a04f09f9880"
+    },
+    {
+      "name": "Android DPAD up short",
+      "kind": "remote",
+      "message": { "remoteKeyInject": { "keyCode": 19, "direction": 3 } },
+      "hex": "520408131003",
+      "framedHex": "06520408131003"
+    },
+    {
+      "name": "remote ping response",
+      "kind": "remote",
+      "message": { "remotePingResponse": { "val1": 7 } },
+      "hex": "4a020807",
+      "framedHex": "044a020807"
+    },
+    {
+      "name": "voice begin",
+      "kind": "remote",
+      "message": { "remoteVoiceBegin": { "sessionId": 7 } },
+      "hex": "f201020807",
+      "framedHex": "05f201020807"
+    },
+    {
+      "name": "PCM voice payload",
+      "kind": "remote",
+      "message": {
+        "remoteVoicePayload": {
+          "sessionId": 7,
+          "samples": { "type": "Buffer", "data": [0, 0, 255, 127] }
+        }
+      },
+      "hex": "fa0108080712040000ff7f",
+      "framedHex": "0bfa0108080712040000ff7f"
+    },
+    {
+      "name": "voice end",
+      "kind": "remote",
+      "message": { "remoteVoiceEnd": { "sessionId": 7 } },
+      "hex": "8202020807",
+      "framedHex": "058202020807"
+    },
+    {
+      "name": "service start",
+      "kind": "remote",
+      "message": { "remoteStart": { "started": true } },
+      "hex": "c202020801",
+      "framedHex": "05c202020801"
+    }
+  ]
+}

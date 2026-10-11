@@ -14,7 +14,7 @@
     "resolveJsonModule": true,
     "isolatedModules": true,
     "noEmit": true,
-    "rootDir": "src"
+    "rootDir": "."
   },
-  "include": ["src/backend/**/*.ts", "src/shared/**/*.ts"]
+  "include": ["src/backend/**/*.ts", "src/shared/**/*.ts", "tests/unit/main/**/*.test.ts"]
 }

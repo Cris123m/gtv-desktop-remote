@@ -17,6 +17,8 @@ export default tseslint.config(
       'dist/**',
       'dist-electron/**',
       'release/**',
+      'test-results/**',
+      'playwright-report/**',
       'node_modules/**',
       'build/**',
       'public/**',
@@ -111,7 +113,7 @@ export default tseslint.config(
 
   // ── Scripts (plain JS/MJS — Node globals, no type-checking) ──────────────
   {
-    files: ['scripts/**/*.{mjs,js,cjs}'],
+    files: ['scripts/**/*.{mjs,js,cjs}', 'tests/integration/**/*.cjs'],
     extends: [tseslint.configs.disableTypeChecked],
     languageOptions: {
       globals: {
@@ -119,13 +121,23 @@ export default tseslint.config(
         console: 'readonly',
         __dirname: 'readonly',
         __filename: 'readonly',
+        require: 'readonly',
+        URL: 'readonly',
       },
     },
   },
 
-  // ── Type-aware rules for backend (tsconfig.backend.json) ─────────────────
+  // Playwright requires an object-pattern parameter, even without dependencies.
   {
-    files: ['src/backend/**/*.ts'],
+    files: ['tests/integration/app-harness.ts'],
+    rules: {
+      'no-empty-pattern': ['error', { allowObjectPatternsAsParameters: true }],
+    },
+  },
+
+  // ── Type-aware rules for backend + main unit tests (tsconfig.backend.json) ─
+  {
+    files: ['src/backend/**/*.ts', 'tests/unit/main/**/*.test.ts'],
     extends: [...tseslint.configs.strictTypeChecked, ...tseslint.configs.stylisticTypeChecked],
     languageOptions: {
       parserOptions: {

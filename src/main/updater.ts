@@ -1,10 +1,7 @@
-import { execFile as execFileCallback } from 'node:child_process';
 import { promises as fs } from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
-import { promisify } from 'node:util';
 
-import { app, BrowserWindow, dialog, shell } from 'electron';
+import { app, BrowserWindow, shell } from 'electron';
 
 import { getRuntimeConfig } from '../backend/core/runtimeConfig';
 import {
@@ -21,9 +18,17 @@ import {
 } from '../backend/updater/version';
 import type { UpdaterStatus } from '../shared/types';
 
+import {
+  assertIntegrationPath,
+  assertLoopbackUrl,
+  integrationEnvironment,
+  relaunchUpdatedApp,
+  runNativeCommand,
+  showMessageBox,
+  updaterTemporaryDirectory,
+  updaterVersion,
+} from './integrationEnvironment';
 import { getAppDataPath, logError, logInfo } from './logger';
-
-const execFile = promisify(execFileCallback);
 
 interface ReleaseAsset {
   name: string;
@@ -54,7 +59,7 @@ let cachedRelease: ReleasePayload | undefined;
 let cachedAsset: ReleaseAsset | undefined;
 let activeBackgroundCheck: Promise<void> | undefined;
 
-const updaterStatus: UpdaterStatus = createInitialUpdaterStatus(app.getVersion());
+const updaterStatus: UpdaterStatus = createInitialUpdaterStatus(updaterVersion());
 
 /**
  * Subscribers receive a fresh snapshot of `UpdaterStatus` every time the
@@ -96,7 +101,7 @@ export function subscribeUpdaterStatus(listener: UpdaterStatusListener): () => v
  * paths produce byte-identical output via the same reducer.
  */
 function dispatchUpdaterEvent(event: UpdaterEvent) {
-  const next = applyUpdaterEvent(updaterStatus, event, app.getVersion());
+  const next = applyUpdaterEvent(updaterStatus, event, updaterVersion());
   Object.assign(updaterStatus, next);
   publishUpdaterStatus();
 }
@@ -141,10 +146,10 @@ async function showUpdaterDialog(
       parent.show();
     }
     parent.focus();
-    return await dialog.showMessageBox(parent, options);
+    return await showMessageBox(options, parent);
   }
 
-  return await dialog.showMessageBox(options);
+  return await showMessageBox(options);
 }
 
 // normalizeVersion + compareVersions extracted to src/backend/updater/version.ts.
@@ -174,7 +179,9 @@ function getRollbackBundlePath(state: UpdateState) {
     return undefined;
   }
 
-  return path.join(getRollbackDirPath(), state.rollbackBundleName);
+  const bundlePath = path.join(getRollbackDirPath(), state.rollbackBundleName);
+  assertIntegrationPath(bundlePath);
+  return bundlePath;
 }
 
 async function rollbackBundleExists(state: UpdateState) {
@@ -241,8 +248,9 @@ async function recoverOrphanedRollbackState(state: UpdateState): Promise<UpdateS
       const match = /<key>CFBundleShortVersionString<\/key>\s*<string>([^<]+)<\/string>/.exec(
         infoPlist
       );
-      if (match) {
-        recoveredVersion = normalizeVersion(match[1]);
+      const version = match?.[1];
+      if (version !== undefined) {
+        recoveredVersion = normalizeVersion(version);
       }
     } catch {
       // ignore, fall through to mtime/unknown
@@ -299,6 +307,7 @@ async function syncRollbackStatus() {
 
 async function requestJson<T>(url: string): Promise<T> {
   const controller = new AbortController();
+  if (integrationEnvironment) assertLoopbackUrl(url);
   const timeout = setTimeout(() => {
     controller.abort();
   }, CHECK_TIMEOUT_MS);
@@ -309,6 +318,7 @@ async function requestJson<T>(url: string): Promise<T> {
         Accept: 'application/vnd.github+json',
         'User-Agent': 'gtv-desktop-remote-updater',
       },
+      ...(integrationEnvironment ? { redirect: 'error' as const } : {}),
       signal: controller.signal,
     });
 
@@ -348,7 +358,10 @@ async function requestJson<T>(url: string): Promise<T> {
 // isDmgAsset + findBestMacAsset extracted to src/backend/updater/version.ts.
 
 function getBundlePathFromExecPath() {
-  return path.resolve(process.execPath, '..', '..', '..');
+  return (
+    integrationEnvironment?.updater?.installedBundlePath ??
+    path.resolve(process.execPath, '..', '..', '..')
+  );
 }
 
 /**
@@ -363,7 +376,7 @@ async function removePathRecursive(target: string): Promise<void> {
     return;
   } catch (primaryError) {
     try {
-      await execFile('rm', ['-rf', target]);
+      await runNativeCommand('rm', ['-rf', target]);
     } catch {
       // Re-throw the original Node error so callers see the real reason.
       throw primaryError;
@@ -376,7 +389,7 @@ async function createRollbackBackup(targetBundle: string) {
   const rollbackDir = getRollbackDirPath();
   const rollbackBundleName = path.basename(targetBundle);
   const rollbackBundlePath = path.join(rollbackDir, rollbackBundleName);
-  const rollbackVersion = normalizeVersion(app.getVersion());
+  const rollbackVersion = normalizeVersion(updaterVersion());
   const rollbackCreatedAt = new Date().toISOString();
 
   await logInfo('updater', 'Creating rollback backup', {
@@ -392,7 +405,7 @@ async function createRollbackBackup(targetBundle: string) {
   try {
     await removePathRecursive(stagingDir);
     await fs.mkdir(stagingDir, { recursive: true });
-    await execFile('ditto', [targetBundle, stagingBundlePath]);
+    await runNativeCommand('ditto', [targetBundle, stagingBundlePath]);
   } catch (error) {
     await logError(
       'updater',
@@ -464,10 +477,14 @@ async function createRollbackBackup(targetBundle: string) {
 }
 
 async function installMacUpdateFromZip(zipPath: string) {
-  const unpackDir = path.join(os.tmpdir(), `gtv-update-unpack-${String(Date.now())}`);
+  const unpackDir = path.join(
+    updaterTemporaryDirectory(),
+    `gtv-update-unpack-${String(Date.now())}`
+  );
+  assertIntegrationPath(unpackDir);
   await fs.mkdir(unpackDir, { recursive: true });
 
-  await execFile('ditto', ['-x', '-k', zipPath, unpackDir]);
+  await runNativeCommand('ditto', ['-x', '-k', zipPath, unpackDir]);
 
   const entries = await fs.readdir(unpackDir, { withFileTypes: true });
   const appDir = entries.find((entry) => entry.isDirectory() && entry.name.endsWith('.app'));
@@ -480,26 +497,29 @@ async function installMacUpdateFromZip(zipPath: string) {
 
   await logInfo('updater', 'Installing update bundle', { sourceBundle, targetBundle });
 
-  if (getRuntimeConfig().devUpdaterEnabled && !app.isPackaged) {
+  if (!integrationEnvironment && getRuntimeConfig().devUpdaterEnabled && !app.isPackaged) {
     await logInfo('updater', 'Dev mode update install skipped', { sourceBundle, targetBundle });
     return;
   }
 
   await createRollbackBackup(targetBundle);
-  await execFile('ditto', [sourceBundle, targetBundle]);
-  await execFile('xattr', ['-dr', 'com.apple.quarantine', targetBundle]);
+  await runNativeCommand('ditto', [sourceBundle, targetBundle]);
+  await runNativeCommand('xattr', ['-dr', 'com.apple.quarantine', targetBundle]);
 }
 
-async function downloadFile(
+export async function downloadFile(
   url: string,
   destinationPath: string,
   onProgress: (downloadedBytes: number, totalBytes: number) => void
 ) {
+  if (integrationEnvironment) assertLoopbackUrl(url);
+  assertIntegrationPath(destinationPath);
   const response = await fetch(url, {
     headers: {
       'User-Agent': 'gtv-desktop-remote-updater',
       Accept: 'application/octet-stream',
     },
+    ...(integrationEnvironment ? { redirect: 'error' as const } : {}),
   });
 
   if (!response.ok || !response.body) {
@@ -521,6 +541,7 @@ async function downloadFile(
     onProgress(downloadedBytes, totalBytes);
   }
 
+  assertIntegrationPath(destinationPath);
   await fs.writeFile(destinationPath, Buffer.concat(chunks));
 }
 
@@ -528,7 +549,9 @@ async function checkForMacUpdate() {
   dispatchUpdaterEvent({ type: 'check-started' });
   dispatchUpdaterEvent({ type: 'check-started' });
 
-  const updatesAllowed = app.isPackaged || getRuntimeConfig().devUpdaterEnabled;
+  const updatesAllowed = integrationEnvironment
+    ? Boolean(integrationEnvironment.updater)
+    : app.isPackaged || getRuntimeConfig().devUpdaterEnabled;
 
   if (!updatesAllowed) {
     await logInfo('updater', 'Skipping updater in development mode');
@@ -540,7 +563,7 @@ async function checkForMacUpdate() {
     return;
   }
 
-  if (process.platform !== 'darwin') {
+  if (process.platform !== 'darwin' && !integrationEnvironment?.updater) {
     // use 'message' event for simple text-only status updates
     dispatchUpdaterEvent({
       type: 'message',
@@ -550,11 +573,12 @@ async function checkForMacUpdate() {
   }
 
   const release = await requestJson<ReleasePayload>(
-    `https://api.github.com/repos/${RELEASE_OWNER}/${RELEASE_REPO}/releases/latest`
+    integrationEnvironment?.updater?.releaseApiUrl ??
+      `https://api.github.com/repos/${RELEASE_OWNER}/${RELEASE_REPO}/releases/latest`
   );
 
   const latestVersion = normalizeVersion(release.tag_name);
-  const currentVersion = normalizeVersion(app.getVersion());
+  const currentVersion = normalizeVersion(updaterVersion());
 
   if (compareVersions(latestVersion, currentVersion) <= 0) {
     cachedRelease = undefined;
@@ -661,7 +685,8 @@ export async function checkForUpdatesManually() {
 }
 
 export async function installAvailableUpdate() {
-  const installDevModeOverride = getRuntimeConfig().devUpdaterEnabled && !app.isPackaged;
+  const installDevModeOverride =
+    !integrationEnvironment && getRuntimeConfig().devUpdaterEnabled && !app.isPackaged;
 
   if (!cachedRelease || !cachedAsset || !updaterStatus.latestVersion) {
     dispatchUpdaterEvent({
@@ -679,7 +704,12 @@ export async function installAvailableUpdate() {
   const version = updaterStatus.latestVersion;
 
   if (isDmgAsset(cachedAsset)) {
-    await shell.openExternal(cachedAsset.browser_download_url);
+    if (integrationEnvironment) {
+      assertLoopbackUrl(cachedAsset.browser_download_url);
+      await runNativeCommand('open', [cachedAsset.browser_download_url]);
+    } else {
+      await shell.openExternal(cachedAsset.browser_download_url);
+    }
     await showUpdaterDialog({
       type: 'info',
       buttons: ['OK'],
@@ -692,7 +722,10 @@ export async function installAvailableUpdate() {
     return await getUpdaterStatus();
   }
 
-  const tmpZipPath = path.join(os.tmpdir(), cachedAsset.name);
+  const tmpZipPath = path.join(
+    updaterTemporaryDirectory(),
+    integrationEnvironment ? path.basename(cachedAsset.name) : cachedAsset.name
+  );
 
   try {
     dispatchUpdaterEvent({
@@ -765,8 +798,7 @@ export async function installAvailableUpdate() {
     });
 
     if (relaunchChoice.response === 0) {
-      app.relaunch();
-      app.quit();
+      relaunchUpdatedApp();
     }
   } catch (error) {
     await logError('updater', 'Automatic update installation failed', error);
@@ -844,7 +876,8 @@ export async function rollbackToPreviousVersion() {
       rollbackVersion: state.rollbackVersion,
     });
 
-    const devModeOverride = getRuntimeConfig().devUpdaterEnabled && !app.isPackaged;
+    const devModeOverride =
+      !integrationEnvironment && getRuntimeConfig().devUpdaterEnabled && !app.isPackaged;
 
     if (devModeOverride) {
       await logInfo('updater', 'Dev mode rollback restore skipped', {
@@ -852,8 +885,8 @@ export async function rollbackToPreviousVersion() {
         targetBundle,
       });
     } else {
-      await execFile('ditto', [rollbackBundlePath, targetBundle]);
-      await execFile('xattr', ['-dr', 'com.apple.quarantine', targetBundle]);
+      await runNativeCommand('ditto', [rollbackBundlePath, targetBundle]);
+      await runNativeCommand('xattr', ['-dr', 'com.apple.quarantine', targetBundle]);
     }
 
     await clearRollbackBackup(state);
@@ -887,8 +920,7 @@ export async function rollbackToPreviousVersion() {
     });
 
     if (relaunchChoice.response === 0) {
-      app.relaunch();
-      app.quit();
+      relaunchUpdatedApp();
     }
   } catch (error) {
     await logError('updater', 'Rollback failed', error);
@@ -903,5 +935,5 @@ export async function rollbackToPreviousVersion() {
 
 export async function getUpdaterStatus(): Promise<UpdaterStatus> {
   await syncRollbackStatus();
-  return { ...updaterStatus, currentVersion: app.getVersion() };
+  return { ...updaterStatus, currentVersion: updaterVersion() };
 }
