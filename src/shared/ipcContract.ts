@@ -111,7 +111,6 @@ type _ContractParityCheck =
       : ['MISSING_CHANNEL_NAME', Exclude<keyof InvokeContract, InvokeChannelKey>]
     : ['MISSING_CONTRACT_ENTRY', Exclude<InvokeChannelKey, keyof InvokeContract>];
 const _parity: _ContractParityCheck = true;
-void _parity;
 
 // ── EVENT channels (main → renderer push) ───────────────────────────────────
 
@@ -133,7 +132,6 @@ type _EventParityCheck =
       : ['MISSING_EVENT_NAME', Exclude<keyof EventContract, EventChannelKey>]
     : ['MISSING_EVENT_CONTRACT', Exclude<EventChannelKey, keyof EventContract>];
 const _eventParity: _EventParityCheck = true;
-void _eventParity;
 
 // ── Helper-derived types (used by preload + main wiring) ─────────────────────
 
