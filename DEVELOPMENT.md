@@ -136,6 +136,10 @@ This is intentional so short navigation bursts remain responsive while sustained
 - Renderer source: `src/renderer`
 - Electron main and preload source: `src/main`
 - Shared cross-process types: `src/shared`
+- DNS-SD TXT parsing and presentation decoding: `src/backend/discovery/dnsSdEncoding.ts`.
+  TXT values are decoded once, and raw whitespace stays within a value until the
+  next key boundary. Native browse instance names are already raw UTF-8 and are
+  never presentation-decoded, including when used as a fallback device name.
 - Packaging output: `release`
 
 ## Release Workflow

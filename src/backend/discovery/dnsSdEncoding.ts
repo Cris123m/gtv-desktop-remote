@@ -1,17 +1,15 @@
 /**
- * Helpers for parsing the text output of the macOS `dns-sd` tool.
- *
- * `dns-sd` prints mDNS data in DNS presentation format: ASCII specials are
- * backslash-escaped (`\ `, `\"`, `\\`), non-printable bytes appear as decimal
- * `\DDD`, and non-ASCII UTF-8 bytes — including U+00A0 no-break space — pass
- * through raw. TXT values can therefore contain unescaped whitespace, so a
- * value only ends where the next `key=` token begins.
+ * Reverses `dns-sd` ShowTXTRecord's shell-friendly presentation of TXT values.
+ * Literal backslashes print as four backslashes, control bytes as two
+ * backslashes followed by xHH, and shell metacharacters as backslash + character.
+ * Decode once so literal backslashes cannot turn into a second escape.
+ * Browse callback instance names are already raw UTF-8 and must not use this.
  */
-
-/** Decode dns-sd's DNS presentation escaping: decimal `\DDD` and `\X` → `X`. */
 export function decodeDnsSdValue(value: string): string {
-  return value.replace(/\\(\d{3}|.)/g, (_match, escaped: string) =>
-    /^\d{3}$/.test(escaped) ? String.fromCharCode(Number(escaped)) : escaped
+  return value.replace(
+    /\\{4}|\\{2}x([0-9A-Fa-f]{2})|\\([ &;`'"|*?~<>^()[\]{}$])/g,
+    (_, hex: string | undefined, character: string | undefined) =>
+      hex !== undefined ? String.fromCharCode(parseInt(hex, 16)) : (character ?? '\\')
   );
 }
 

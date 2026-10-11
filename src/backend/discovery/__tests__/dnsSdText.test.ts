@@ -1,24 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
-import { decodeDnsSdValue, parseDnsSdTxtLine } from '../dnsSdText';
+import { parseDnsSdTxtLine } from '../dnsSdEncoding';
 
 const NBSP = '\u00a0';
-
-describe('decodeDnsSdValue', () => {
-  it('decodes escaped quotes, spaces, and backslashes', () => {
-    expect(decodeDnsSdValue('55\\"\\ Neo\\ QLED')).toBe('55" Neo QLED');
-    expect(decodeDnsSdValue('a\\\\b')).toBe('a\\b');
-  });
-
-  it('decodes decimal \\DDD escapes', () => {
-    expect(decodeDnsSdValue('Neo\\032QLED')).toBe('Neo QLED');
-    expect(decodeDnsSdValue('tab\\009end')).toBe('tab\tend');
-  });
-
-  it('leaves unescaped text untouched', () => {
-    expect(decodeDnsSdValue('QN80D')).toBe('QN80D');
-  });
-});
 
 describe('parseDnsSdTxtLine', () => {
   // Captured verbatim from `dns-sd -L` output of real TVs.
@@ -42,6 +26,19 @@ describe('parseDnsSdTxtLine', () => {
 
   it('does not split values on an escaped space before a key-like token', () => {
     expect(parseDnsSdTxtLine(' fn=abc\\ md=X st=0')).toEqual({ fn: 'abc md=X', st: '0' });
+  });
+
+  it('decodes TXT presentation once while preserving literal escape-looking text', () => {
+    expect(parseDnsSdTxtLine(String.raw` fn=Dan\'s\ Google\ TV md=a\\\\x09b st=0`)).toEqual({
+      fn: "Dan's Google TV",
+      md: String.raw`a\x09b`,
+      st: '0',
+    });
+    expect(parseDnsSdTxtLine(String.raw` fn=a\\\\032b md=x\\x09y st=0`)).toEqual({
+      fn: String.raw`a\032b`,
+      md: 'x\ty',
+      st: '0',
+    });
   });
 
   it('ignores lines without valid key=value tokens', () => {
