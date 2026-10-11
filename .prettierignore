@@ -4,6 +4,5 @@ release/
 node_modules/
 build/
 public/
-graphify-out/
 *.lock
 package-lock.json
