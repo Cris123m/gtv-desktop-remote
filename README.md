@@ -98,6 +98,15 @@ The Homebrew cask removes the quarantine flag automatically during install and p
 
 The app remembers paired devices, so future connections are instant.
 
+### Finding, hiding, and quitting the remote
+
+On first launch, a dismissible **Welcome to GTV Remote** hint explains where the app lives. Click **Got it** to acknowledge it; it will not appear again on later launches.
+
+- Look for the GTV Remote icon in the **menu bar** at the top of your screen. The app does not stay in the Dock.
+- Click the menu-bar icon to show or hide the remote, or use the global shortcut shown in the welcome hint.
+- The remote automatically hides when you click away or switch apps. It is still running and stays connected; click its menu-bar icon to bring it back.
+- Right-click the menu-bar icon for **Show Remote**, **Hide Remote**, and **Quit**. Choose **Quit** to exit completely, rather than just hide the window.
+
 ---
 
 ## Keyboard Shortcuts
@@ -140,6 +149,8 @@ Click or focus the show/hide shortcut control, then press and release the actual
 **Pairing not completing?**
 
 - Start a fresh pairing session and enter the latest code shown on the TV screen.
+- Pairing codes contain six hexadecimal characters (`0–9`, `A–F`); `O` is not a valid character.
+- After a certificate-hash validation error, select the device again to request a fresh code. If the error persists with the exact new code, report the app version and TV model/firmware.
 - If the device was previously saved, remove it and pair again.
 
 **App not opening or only showing the menubar icon?**

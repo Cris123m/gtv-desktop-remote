@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 
-import { decodeDnsSdValue, parseDnsSdTxtLine } from '../../backend/devices/dnsSdText';
+import { parseDnsSdTxtLine } from '../../backend/discovery/dnsSdEncoding';
 import type { DiscoveredDevice } from '../../shared/types';
 import { record } from '../capture';
 
@@ -209,7 +209,7 @@ export async function discoverGoogleTvDevices(): Promise<DiscoveredDevice[]> {
       continue;
     }
 
-    const name = decodeDnsSdValue(service.instanceName);
+    const name = service.instanceName;
     devices.set(service.host, {
       id: buildDiscoveredId(service.host, name),
       name,
@@ -232,7 +232,7 @@ export async function discoverGoogleTvDevices(): Promise<DiscoveredDevice[]> {
     const remoteService = remoteByHost.get(service.host);
     const connectService = connectByHost.get(service.host);
     const pairService = pairingByHost.get(service.host);
-    const name = service.txt.fn || decodeDnsSdValue(service.instanceName);
+    const name = service.txt.fn || service.instanceName;
 
     devices.set(service.host, {
       id: existing?.id ?? buildDiscoveredId(service.host, name),
