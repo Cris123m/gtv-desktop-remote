@@ -3,7 +3,7 @@
   "productName": "GTV Remote",
   "version": "1.6.4",
   "description": "macOS-first desktop remote for Google TV and Android TV",
-  "packageManager": "yarn@4.18.0",
+  "packageManager": "yarn@4.18.1",
   "main": "dist-electron/main/main.js",
   "repository": {
     "type": "git",
@@ -71,6 +71,8 @@
         "dmg",
         "zip"
       ],
+      "identity": "-",
+      "hardenedRuntime": false,
       "category": "public.app-category.utilities",
       "icon": "taskbar-icon.icns",
       "extendInfo": {
@@ -108,7 +110,7 @@
     "@vitejs/plugin-react": "^6.0.0",
     "@vitest/coverage-v8": "^3.2.4",
     "concurrently": "^9.1.2",
-    "electron": "^43.0.0",
+    "electron": "^44.0.0",
     "electron-builder": "^26.0.12",
     "eslint": "^10.0.0",
     "eslint-config-prettier": "^10.1.8",
