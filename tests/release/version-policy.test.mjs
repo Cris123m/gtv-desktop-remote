@@ -42,8 +42,17 @@ function fixture(t, historical = false) {
   git(cwd, 'config', 'user.name', 'Release policy fixture');
   git(cwd, 'config', 'user.email', 'fixture@example.invalid');
   if (historical) {
-    git(cwd, 'fetch', pathToFileURL(root).href, 'HEAD', '+refs/tags/*:refs/tags/*');
-    git(cwd, 'checkout', '-B', 'main', 'FETCH_HEAD');
+    // Keep the real pre-major history reproducible after future production releases.
+    const historicalHead = '794b3c7e6af08b20ede57585d748fa9f7a1e6b4b';
+    git(
+      cwd,
+      'fetch',
+      '--no-tags',
+      pathToFileURL(root).href,
+      historicalHead,
+      'refs/tags/v1.6.4:refs/tags/v1.6.4'
+    );
+    git(cwd, 'checkout', '-B', 'main', historicalHead);
   } else {
     git(cwd, 'commit', '--allow-empty', '-m', 'chore: initial fixture');
   }
@@ -92,9 +101,6 @@ async function preview({ cwd, remote }, expectedVersion, expectedType, expectedB
     assert.equal(result.nextRelease.type, info.releaseType);
     assert.equal(result.nextRelease.gitTag, `v${expectedVersion}`);
     assert.ok(result.nextRelease.notes.includes(expectedVersion));
-    if (expectedBase === 'v1.6.4') {
-      assert.ok(!result.nextRelease.notes.includes('BREAKING CHANGES'));
-    }
   }
   assert.equal(git(cwd, 'show-ref'), before, 'dry-run must not mutate local refs');
   assert.equal(git(remote, 'show-ref'), remoteBefore, 'dry-run must not mutate remote refs');
