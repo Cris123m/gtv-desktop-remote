@@ -106,6 +106,15 @@ Preview what would be removed without deleting anything:
 yarn reset:app:dry-run
 ```
 
+Saved devices are stored in `<userData>/devices.json`. Each write completes a unique
+temporary file in the same directory before atomically replacing the store, so
+bootstrap reads see the previous complete list (or an empty list before the first
+save) until the new complete list is published. Failed writes or replacements leave
+the previous store intact and attempt to remove only their own temporary file;
+cleanup failures do not mask the original error. Overlapping writes use separate
+temporary files, but this is not a read-modify-write transaction: the last successful
+replacement wins.
+
 ## Debug Telemetry
 
 The app contains command and transport tracing that is useful during debugging.
