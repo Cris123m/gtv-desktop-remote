@@ -3,30 +3,49 @@ import path from 'node:path';
 
 import { test, expect } from './app-harness';
 
-test('PAIR-CHECKSUM: wrong certificate-bound hexadecimal checksum rejects then valid retry pairs', async ({
+test('PAIR-CHECKSUM: rendered checksum failure requests a fresh code and valid retry controls the TV', async ({
   harness: h,
 }) => {
-  const device = await h.pair();
-  await h.api('disconnect');
-  await h.api('startPairing', device.id);
+  const device = await h.preparePairing();
+  await h.openPairing();
+  const input = h.page.locator('input[autocomplete="one-time-code"]');
   const valid = h.tv.pairingCode;
   const invalid = `${valid[0] === 'A' ? 'B' : 'A'}${valid.slice(1)}`;
+  const traceStart = h.tv.traces.length;
+  const sessionsBeforeRetry = h.tv.snapshot().pairingSessions;
+  await input.fill(invalid);
+  await h.page.getByRole('button', { name: 'Connect', exact: true }).click();
+  await expect(h.page.locator('.ui-alert')).toContainText('certificate hash validation');
   await expect(
-    h.api('pair', {
-      deviceId: device.id,
-      host: device.host,
-      code: invalid,
-      macAddress: device.macAddress,
-    })
-  ).rejects.toThrow();
-  await h.api('startPairing', device.id);
-  await h.api('pair', {
-    deviceId: device.id,
-    host: device.host,
-    code: h.tv.pairingCode,
-    macAddress: device.macAddress,
-  });
-  expect((await h.api('connect', device.id)).status).toBe('connected');
+    h.page.getByRole('heading', { name: 'New Devices Found', exact: true })
+  ).toBeVisible();
+  await expect(input).toHaveCount(0);
+  expect((await h.api('bootstrap')).deviceState.status).toBe('error');
+  expect(
+    (await h.api('bootstrap')).devices.find((item) => item.id === device.id)?.isPaired
+  ).not.toBe(true);
+  expect(h.tv.snapshot().pairedClients).toBe(0);
+  expect(
+    h.tv.traces
+      .slice(traceStart)
+      .some(
+        (trace) =>
+          trace.service === 'pairing' &&
+          trace.direction === 'rx' &&
+          trace.message.includes('pairingSecret')
+      )
+  ).toBe(false);
+
+  await h.openPairing();
+  expect(h.tv.snapshot().pairingSessions).toBe(sessionsBeforeRetry + 1);
+  await expect(input).toHaveValue('');
+  await expect(h.page.getByRole('button', { name: 'Connect', exact: true })).toBeDisabled();
+  await input.fill(h.tv.pairingCode);
+  await h.page.getByRole('button', { name: 'Connect', exact: true }).click();
+  await h.tv.waitFor((state) => state.ready && state.pairedClients === 1);
+  expect((await h.api('bootstrap')).deviceState.status).toBe('connected');
+  await h.page.getByRole('button', { name: 'Select', exact: true }).click();
+  await h.tv.waitFor((state) => state.selected === 1);
 });
 
 test('PAIR-CERTIFICATE-REJECTION: replaced app credential cannot reuse paired authorization', async ({
