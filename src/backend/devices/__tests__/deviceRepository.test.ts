@@ -135,7 +135,7 @@ describe('DeviceRepository', () => {
         const next = [{ ...PAIRED_DEVICE, name: 'Bedroom TV' }];
         const started = makeGate();
         const release = makeGate();
-        const writeFile = fs.writeFile;
+        const writeFile = fs.writeFile.bind(fs);
         fs.writeFile = async (filePath, contents, encoding) => {
           await writeFile(filePath, contents.slice(0, 10), encoding);
           started.resolve();
@@ -160,15 +160,18 @@ describe('DeviceRepository', () => {
       await repo.write([PAIRED_DEVICE]);
       const first = [{ ...PAIRED_DEVICE, name: 'First TV' }];
       const second = [{ ...PAIRED_DEVICE, name: 'Second TV' }];
-      const started = [makeGate(), makeGate()];
-      const release = [makeGate(), makeGate()];
-      const writeFile = fs.writeFile;
+      const started = [makeGate(), makeGate()] as const;
+      const release = [makeGate(), makeGate()] as const;
+      const writeFile = fs.writeFile.bind(fs);
       let writeIndex = 0;
       fs.writeFile = async (filePath, contents, encoding) => {
         const index = writeIndex++;
         await writeFile(filePath, contents, encoding);
-        started[index].resolve();
-        await release[index].promise;
+        const startGate = started[index];
+        const releaseGate = release[index];
+        if (!startGate || !releaseGate) throw new Error('Unexpected additional writer');
+        startGate.resolve();
+        await releaseGate.promise;
       };
 
       const firstWrite = repo.write(first);
@@ -186,7 +189,9 @@ describe('DeviceRepository', () => {
         await expect(repo.read()).resolves.toEqual(first);
         expect(Object.keys(fs.dump())).toEqual([repo.storePath()]);
       } finally {
-        release.forEach((gate) => gate.resolve());
+        release.forEach((gate) => {
+          gate.resolve();
+        });
         await Promise.all([firstWrite, secondWrite]);
       }
     });
@@ -199,7 +204,7 @@ describe('DeviceRepository', () => {
         const previousFiles = fs.dump();
         const failure = new Error(`Failed ${failureStage}`);
         if (failureStage === 'write') {
-          const writeFile = fs.writeFile;
+          const writeFile = fs.writeFile.bind(fs);
           fs.writeFile = async (filePath, contents, encoding) => {
             await writeFile(filePath, contents.slice(0, 10), encoding);
             throw failure;
