@@ -62,7 +62,9 @@ const commits = rawMessages
     const [hash, ...message] = record.split('\x1f');
     return { hash, message: message.join('\x1f').trim() };
   });
-const releaseConfig = JSON.parse(readFileSync(new URL('../.releaserc.json', import.meta.url), 'utf8'));
+const releaseConfig = JSON.parse(
+  readFileSync(new URL('../.releaserc.json', import.meta.url), 'utf8')
+);
 const [, analyzerConfig] = releaseConfig.plugins.find(
   (plugin) => Array.isArray(plugin) && plugin[0] === './scripts/analyze-release-commits.mjs'
 );
