@@ -93,6 +93,25 @@ jobs:
           path: coverage/
           retention-days: 7
 
+  release-preview:
+    needs: setup
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: yarn
+      - run: corepack enable
+      - run: yarn install --immutable
+      - name: Resolver and semantic-release agreement (no publication)
+        run: node --test tests/release/version-policy.test.mjs
+
   integration:
     runs-on: ubuntu-latest
     steps:
@@ -123,7 +142,7 @@ jobs:
           retention-days: 7
 
   build:
-    needs: [format, lint, typecheck, test, integration]
+    needs: [format, lint, typecheck, test, integration, release-preview]
     runs-on: ubuntu-latest
     if: "!contains(github.event.head_commit.message, '[skip ci]')"
     steps:

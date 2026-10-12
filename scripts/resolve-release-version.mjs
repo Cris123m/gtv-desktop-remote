@@ -1,6 +1,9 @@
 #!/usr/bin/env node
 
 import { execFileSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
+
+import { analyzeCommits } from './analyze-release-commits.mjs';
 
 function git(args) {
   return execFileSync('git', args, { encoding: 'utf8' }).trim();
@@ -40,47 +43,6 @@ function incrementVersion(version, releaseType) {
   return version;
 }
 
-function releaseTypeForMessage(message) {
-  const [header = ''] = message.split('\n');
-  const trimmedHeader = header.trim();
-  const body = message.toLowerCase();
-
-  if (
-    /!\s*:/.test(trimmedHeader) ||
-    body.includes('breaking change:') ||
-    body.includes('breaking changes:')
-  ) {
-    return 'major';
-  }
-
-  const typeMatch = /^([a-z]+)(\([^)]+\))?!?:/.exec(trimmedHeader);
-  const type = typeMatch?.[1];
-
-  if (type === 'feat') {
-    return 'minor';
-  }
-
-  if (type === 'fix' || type === 'perf' || type === 'refactor') {
-    return 'patch';
-  }
-
-  return null;
-}
-
-function maxReleaseType(current, next) {
-  const rank = { patch: 1, minor: 2, major: 3 };
-
-  if (!current) {
-    return next;
-  }
-
-  if (!next) {
-    return current;
-  }
-
-  return rank[next] > rank[current] ? next : current;
-}
-
 const headRef = process.argv[2] || 'HEAD';
 let lastTag;
 
@@ -91,17 +53,25 @@ try {
 }
 
 const range = lastTag ? `${lastTag}..${headRef}` : headRef;
-const rawMessages = git(['log', '--format=%B%x1e', '--no-merges', range]);
-const messages = rawMessages
+const rawMessages = git(['log', '--format=%H%x1f%B%x1e', range]);
+const commits = rawMessages
   .split('\x1e')
-  .map((message) => message.trim())
-  .filter(Boolean);
-
-let releaseType = null;
-
-for (const message of messages) {
-  releaseType = maxReleaseType(releaseType, releaseTypeForMessage(message));
-}
+  .map((record) => record.trim())
+  .filter(Boolean)
+  .map((record) => {
+    const [hash, ...message] = record.split('\x1f');
+    return { hash, message: message.join('\x1f').trim() };
+  });
+const releaseConfig = JSON.parse(readFileSync(new URL('../.releaserc.json', import.meta.url), 'utf8'));
+const [, analyzerConfig] = releaseConfig.plugins.find(
+  (plugin) => Array.isArray(plugin) && plugin[0] === './scripts/analyze-release-commits.mjs'
+);
+const releaseType = await analyzeCommits(analyzerConfig, {
+  cwd: process.cwd(),
+  commits,
+  lastRelease: { version: lastTag.replace(/^v/, '') },
+  logger: { log() {} },
+});
 
 const previousVersion = lastTag ? parseVersion(lastTag) : { major: 0, minor: 0, patch: 0 };
 const nextVersion = releaseType ? incrementVersion(previousVersion, releaseType) : previousVersion;
@@ -115,7 +85,7 @@ process.stdout.write(
       releaseType,
       willRelease,
       version: initialRelease ? '1.0.0' : formatVersion(nextVersion),
-      commitCount: messages.length,
+      commitCount: commits.length,
     },
     null,
     2

@@ -226,8 +226,8 @@ The script will:
 
 1. Verify you are in a clean checkout that is in sync with `origin/<ref>`.
 2. List the commits that will be included since the last release tag.
-3. Run `semantic-release --dry-run` locally to compute and display the next
-   version (based on `feat:` / `fix:` / `BREAKING CHANGE:` etc.).
+3. Run the release-version resolver locally to compute and display the next
+   version using the same analyzer and release rules as semantic-release.
 4. Ask for confirmation, then dispatch the `Release` workflow via the `gh`
    CLI (falling back to a REST call if `gh` is unavailable and
    `GH_TOKEN`/`GITHUB_TOKEN` is set).
@@ -236,6 +236,29 @@ The script will:
 You can also trigger the workflow directly from the GitHub Actions UI
 ("Run workflow" on the `Release` workflow), but the script is preferred because
 it shows the next version and commit list before you commit to publishing.
+
+### Intentional next major: v2.0.0
+
+The next manually authorized release from the v1 line is intentionally **v2.0.0**.
+This is a product-version decision, not a fabricated `BREAKING CHANGE` commit or
+a package-version bump. `scripts/analyze-release-commits.mjs` wraps the normal
+Conventional Commit analyzer: if the last release is v1 and there are new commits,
+it selects a major release. The local resolver, macOS artifact version, semantic-release
+tag, and generated release-note heading all use that same decision.
+
+After the reachable v2.0.0 tag, the policy is automatically inactive: `fix:`,
+`perf:`, and `refactor:` select patch; `feat:` selects minor; real breaking changes
+select major; documentation-only changes do not release. No commits after a tag
+also do not release. An untagged repository retains the normal initial v1.0.0 behavior.
+
+The CI `release-preview` job runs `node --test tests/release/version-policy.test.mjs`.
+It compares the actual resolver CLI with the actual semantic-release dry-run and
+release-notes generator against both repository history and disposable local Git
+fixtures, then checks the post-v2 rules. Publication plugins are excluded; there
+are no GitHub credentials, API calls, release tags, or comments. Fixture setup tags
+exist only in temporary local repositories. CI checks that dry-runs leave refs unchanged.
+The production `Release` workflow remains manual-only with the existing actor
+allow-list and production-environment approval gates.
 
 ### What CI does on each push
 
