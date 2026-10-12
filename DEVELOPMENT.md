@@ -45,6 +45,14 @@ Type test doubles with `Mock<ProductionFunction>` and `vi.fn<ProductionFunction>
 rather than `ReturnType<typeof vi.fn>` so callable signatures remain precise across
 Vitest versions.
 
+Dependency updates retain Node 24 and Yarn's minimum package-age gate. The only
+preapproved package is the owned `@librecontrol/google-tv@1.0.1` release; a newly
+published third-party version must age normally rather than receive an exemption.
+Keep TypeScript within the supported range of `typescript-eslint` (currently
+`>=4.8.4 <6.1.0`); a published compiler major alone does not establish lint-toolchain
+compatibility. Concurrently 10's CLI requires Node 22 or later and remains compatible
+with the Node 24 development scripts.
+
 ## Local Build
 
 Build the renderer and Electron bundles without packaging:

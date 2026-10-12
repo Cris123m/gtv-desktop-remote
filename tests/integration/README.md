@@ -10,7 +10,9 @@ yarn build
 yarn test:integration
 ```
 
-On Linux, use `xvfb-run -a yarn test:integration`. CI installs Xvfb/Xauth, ZIP/unzip and Electron GTK/NSS/GBM/audio dependencies. The `integration` job has no job-level skip condition; the final build depends on it. GitHub's workflow-level skip directives and repository branch-protection settings remain platform controls. `yarn typecheck:integration` checks all runner, fixture and independent emulator TypeScript. The runner pins Playwright 1.58.2, uses Electron from the repository, one worker, no retries and `forbidOnly`. All nested emulator `.spec.ts` files run in this same command.
+On Linux, use `xvfb-run -a yarn test:integration`. CI installs Xvfb/Xauth, ZIP/unzip and Electron GTK/NSS/GBM/audio dependencies. The `integration` job has no job-level skip condition; the final build depends on it. GitHub's workflow-level skip directives and repository branch-protection settings remain platform controls. `yarn typecheck:integration` checks all runner, fixture and independent emulator TypeScript. The runner pins Playwright 1.64.0, uses Electron from the repository, one worker, no retries and `forbidOnly`. All nested emulator `.spec.ts` files run in this same command.
+
+After upgrading Playwright, rerun `yarn playwright install ffmpeg`: the runner selects its own encoder revision (1013 in 1.64.0), independently of the repository's Electron version. Electron video capture still uses the real application window and the encoder selected by Playwright; no bundled Playwright browser replaces Electron.
 
 **Full-suite platform prerequisite:** mandatory Linux CI runs every scenario, including real migration between `127.0.0.1` and `127.0.0.2`. A local macOS run needs the second IPv4 loopback alias assigned by the operator beforehand; otherwise the OS rejects binding `127.0.0.2` (`EADDRNOTAVAIL`) and that scenario fails rather than skipping or faking migration. The runner never changes user network configuration. No IPv6 discovery support is implied.
 
