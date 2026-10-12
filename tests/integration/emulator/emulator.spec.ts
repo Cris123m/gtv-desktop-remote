@@ -1,5 +1,7 @@
 import { execFile } from 'node:child_process';
 import { readFileSync } from 'node:fs';
+import { connect as connectTcp } from 'node:net';
+import type { Socket } from 'node:net';
 import { resolve } from 'node:path';
 import { connect } from 'node:tls';
 import type { TLSSocket } from 'node:tls';
@@ -351,6 +353,7 @@ test('native dns-sd subprocess emits mutable duplicates, escapes, empty, malform
 test('TLS admission refuses absent client certificates and waiters dispose deterministically', async () => {
   const tv = await createTvEmulator();
   let socket: TLSSocket | undefined;
+  let pendingHandshake: Socket | undefined;
   try {
     tv.trustClient(clientCert);
     await tv.start();
@@ -373,12 +376,22 @@ test('TLS admission refuses absent client certificates and waiters dispose deter
       clearTimeout(timeout);
     }
     expect(tv.snapshot().pairingSessions).toBe(0);
+    // A TCP peer that never starts TLS still belongs to the listener's shutdown.
+    pendingHandshake = connectTcp({ host: tv.host, port: tv.pairingPort });
+    const connected = Promise.withResolvers<void>();
+    pendingHandshake.once('connect', () => connected.resolve());
+    pendingHandshake.once('error', connected.reject);
+    await connected.promise;
+    const handshakeClosed = Promise.withResolvers<void>();
+    pendingHandshake.once('close', () => handshakeClosed.resolve());
     const wait = tv.waitFor((state) => state.ready);
     const rejected = expect(wait).rejects.toThrow('stopped');
     await tv.stop();
+    await handshakeClosed.promise;
     await rejected;
   } finally {
     socket?.destroy();
+    pendingHandshake?.destroy();
     await tv.stop();
   }
 });

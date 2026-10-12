@@ -1,7 +1,7 @@
-import { X509Certificate } from 'node:crypto';
+import { randomInt, X509Certificate } from 'node:crypto';
 import { EventEmitter } from 'node:events';
-import { mkdtemp, mkdir, writeFile, readFile, rm, rename } from 'node:fs/promises';
-import { createServer as createNetServer } from 'node:net';
+import { mkdtemp, mkdir, writeFile, readFile, rm, rename, rmdir } from 'node:fs/promises';
+import type { Socket } from 'node:net';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { createServer } from 'node:tls';
@@ -56,31 +56,6 @@ export interface ProtocolTrace {
   bytes?: number;
 }
 
-async function unusedPorts(host: string): Promise<number[]> {
-  const reservations = [createNetServer(), createNetServer()];
-  try {
-    const ports: number[] = [];
-    for (const server of reservations) {
-      const listening = Promise.withResolvers<void>();
-      server.once('error', listening.reject);
-      server.listen(0, host, () => listening.resolve());
-      await listening.promise;
-      const address = server.address();
-      if (!address || typeof address === 'string') throw new Error('no loopback port');
-      ports.push(address.port);
-    }
-    return ports;
-  } finally {
-    await Promise.all(
-      reservations.map((server) => {
-        if (!server.listening) return Promise.resolve();
-        const closed = Promise.withResolvers<void>();
-        server.close((error) => (error ? closed.reject(error) : closed.resolve()));
-        return closed.promise;
-      })
-    );
-  }
-}
 function certificate(): { cert: string; key: string } {
   const keys = forge.pki.rsa.generateKeyPair(2048);
   const cert = forge.pki.createCertificate();
@@ -113,8 +88,14 @@ function certificate(): { cert: string; key: string } {
 export class TvEmulator extends EventEmitter {
   readonly certificatePem: string;
   host: string;
-  readonly remotePort: number;
-  readonly pairingPort: number;
+  private ports: [number, number] = [0, 0];
+  private endpointLease?: string;
+  get pairingPort(): number {
+    return this.ports[0];
+  }
+  get remotePort(): number {
+    return this.ports[1];
+  }
   readonly discoveryStatePath: string;
   pairingCode = '';
   readonly traces: ProtocolTrace[] = [];
@@ -124,6 +105,7 @@ export class TvEmulator extends EventEmitter {
   private readonly paired = new Set<string>();
   private readonly sockets = new Set<TLSSocket>();
   private readonly remoteSockets = new Set<TLSSocket>();
+  private readonly transportSockets = new Set<Socket>();
   private readonly sendQueues = new Map<TLSSocket, { chunks: Buffer[]; end: boolean }[]>();
   private servers: Server[] = [];
   private fault: FaultMode = 'none';
@@ -135,12 +117,10 @@ export class TvEmulator extends EventEmitter {
   private stopped = false;
   private constructor(
     options: TvEmulatorOptions,
-    ports: number[],
     private readonly temporaryDirectory: string
   ) {
     super();
     this.host = options.host ?? '127.0.0.1';
-    [this.pairingPort, this.remotePort] = ports;
     this.discoveryStatePath =
       options.discoveryStatePath ?? join(temporaryDirectory, 'discovery.json');
     this.credentials = certificate();
@@ -151,8 +131,39 @@ export class TvEmulator extends EventEmitter {
     const host = options.host ?? '127.0.0.1';
     if (!/^127\.\d+\.\d+\.\d+$/.test(host)) throw new Error('emulator requires IPv4 loopback');
     const directory = await mkdtemp(join(tmpdir(), 'gtv-emulator-'));
+    let emulator: TvEmulator | undefined;
     try {
-      const emulator = new TvEmulator(options, await unusedPorts(host), directory);
+      emulator = new TvEmulator(options, directory);
+      // Below the default client ephemeral ranges on Linux, macOS and Windows.
+      // Keep an exclusive pair lease even while real refusal requires no listener.
+      const leases = join(tmpdir(), 'gtv-emulator-endpoints');
+      await mkdir(leases, { recursive: true });
+      const pairs = 4000;
+      const first = randomInt(pairs);
+      for (let offset = 0; offset < pairs; offset++) {
+        const port = 16000 + ((first + offset) % pairs) * 2;
+        const lease = join(leases, String(port));
+        try {
+          await mkdir(lease);
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code === 'EEXIST') continue;
+          throw error;
+        }
+        emulator.endpointLease = lease;
+        emulator.ports = [port, port + 1];
+        try {
+          // Allocation binds the actual TLS listeners, not a disposable port probe.
+          await emulator.openListeners();
+          break;
+        } catch (error) {
+          await rmdir(lease);
+          emulator.endpointLease = undefined;
+          // Busy candidates are allocation failures only; restoration never retries.
+          if ((error as NodeJS.ErrnoException).code !== 'EADDRINUSE') throw error;
+        }
+      }
+      if (!emulator.endpointLease) throw new Error('no free TV emulator endpoint pair');
+      await emulator.closeListeners();
       await emulator.setDiscovery([
         {
           name: 'Synthetic Google TV',
@@ -164,7 +175,8 @@ export class TvEmulator extends EventEmitter {
       if (options.start) await emulator.start();
       return emulator;
     } catch (error) {
-      await rm(directory, { recursive: true, force: true });
+      if (emulator) await emulator.stop();
+      else await rm(directory, { recursive: true, force: true });
       throw error;
     }
   }
@@ -179,6 +191,9 @@ export class TvEmulator extends EventEmitter {
     if (this.started) return;
     if (!this.trusted.size) throw new Error('TLS requires explicit trusted client certificate');
     if (this.fault === 'refuse') return;
+    await this.openListeners();
+  }
+  private async openListeners(): Promise<void> {
     try {
       for (const [service, port] of [
         ['pairing', this.pairingPort],
@@ -196,6 +211,11 @@ export class TvEmulator extends EventEmitter {
         );
         this.servers.push(server);
         server.on('tlsClientError', (error) => this.trace('tls', 'error', error.message));
+        server.on('connection', (socket: Socket) => {
+          this.transportSockets.add(socket);
+          socket.once('close', () => this.transportSockets.delete(socket));
+          if (!server.listening) socket.destroy();
+        });
         const listening = Promise.withResolvers<void>();
         server.once('error', listening.reject);
         server.listen(port, this.host, () => listening.resolve());
@@ -601,7 +621,13 @@ export class TvEmulator extends EventEmitter {
     for (const socket of this.remoteSockets) socket.destroy();
   }
   private async closeListeners(): Promise<void> {
-    for (const socket of this.sockets) socket.destroy();
+    const socketsClosed = [...this.sockets, ...this.transportSockets].map((socket) => {
+      if (socket.closed) return Promise.resolve();
+      const closed = Promise.withResolvers<void>();
+      socket.once('close', () => closed.resolve());
+      socket.destroy();
+      return closed.promise;
+    });
     await Promise.all(
       this.servers.map((server) => {
         if (!server.listening) return Promise.resolve();
@@ -610,6 +636,7 @@ export class TvEmulator extends EventEmitter {
         return closed.promise;
       })
     );
+    await Promise.all(socketsClosed);
     this.servers = [];
     this.started = false;
   }
@@ -617,10 +644,17 @@ export class TvEmulator extends EventEmitter {
     if (this.stopped) return;
     this.stopped = true;
     this.emit('disposed');
-    await this.closeListeners();
-    this.sendQueues.clear();
-    await rm(this.temporaryDirectory, { recursive: true, force: true });
-    this.removeAllListeners();
+    try {
+      await this.closeListeners();
+    } finally {
+      if (this.endpointLease) {
+        await rmdir(this.endpointLease);
+        this.endpointLease = undefined;
+      }
+      this.sendQueues.clear();
+      await rm(this.temporaryDirectory, { recursive: true, force: true });
+      this.removeAllListeners();
+    }
   }
   private changed(): void {
     this.emit('change', this.snapshot());
