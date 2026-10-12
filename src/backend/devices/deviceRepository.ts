@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 
 import type { SavedDevice } from '../../shared/types';
@@ -49,11 +50,27 @@ export class DeviceRepository {
   async write(devices: SavedDevice[]): Promise<void> {
     const storePath = this.storePath();
     await this.fs.mkdir(path.dirname(storePath), { recursive: true });
-    await this.fs.writeFile(
-      storePath,
-      JSON.stringify({ ...DEFAULT_DATA, devices }, null, 2),
-      'utf8'
+    const temporary = path.join(
+      path.dirname(storePath),
+      `.${path.basename(storePath)}.${randomUUID()}.tmp`
     );
+    try {
+      await this.fs.writeFile(
+        temporary,
+        JSON.stringify({ ...DEFAULT_DATA, devices }, null, 2),
+        'utf8'
+      );
+      await this.fs.rename(temporary, storePath);
+    } catch (error) {
+      // A partial write may have created the temporary file. Cleanup must not
+      // replace the original write/rename error.
+      try {
+        await this.fs.rm(temporary, { force: true });
+      } catch {
+        // Best-effort cleanup of this write's temporary file only.
+      }
+      throw error;
+    }
   }
 
   async clear(): Promise<void> {

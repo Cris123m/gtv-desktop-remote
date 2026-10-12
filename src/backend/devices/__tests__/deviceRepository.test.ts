@@ -34,10 +34,26 @@ function makeFakeFs(
       return Promise.resolve();
     },
     rmRecursive: () => Promise.resolve(),
-    rename: () => Promise.resolve(),
+    rename: (from, to) => {
+      const contents = files.get(from);
+      if (contents === undefined) {
+        return Promise.reject(Object.assign(new Error(`ENOENT: ${from}`), { code: 'ENOENT' }));
+      }
+      files.set(to, contents);
+      files.delete(from);
+      return Promise.resolve();
+    },
     exists: (p) => Promise.resolve(files.has(p)),
     dump: () => Object.fromEntries(files),
   };
+}
+
+function makeGate(): { promise: Promise<void>; resolve: () => void } {
+  let resolve!: () => void;
+  const promise = new Promise<void>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
 }
 
 const PAIRED_DEVICE: SavedDevice = {
@@ -111,10 +127,106 @@ describe('DeviceRepository', () => {
       await expect(repo.read()).resolves.toEqual([PAIRED_DEVICE]);
     });
 
-    it('formats with 2-space indentation (matches the pre-extraction format)', async () => {
+    it.each([false, true])(
+      'exposes only complete state while a partial write is held (existing store: %s)',
+      async (hasExistingStore) => {
+        const previous = hasExistingStore ? [PAIRED_DEVICE] : [];
+        if (hasExistingStore) await repo.write(previous);
+        const next = [{ ...PAIRED_DEVICE, name: 'Bedroom TV' }];
+        const started = makeGate();
+        const release = makeGate();
+        const writeFile = fs.writeFile.bind(fs);
+        fs.writeFile = async (filePath, contents, encoding) => {
+          await writeFile(filePath, contents.slice(0, 10), encoding);
+          started.resolve();
+          await release.promise;
+          await writeFile(filePath, contents, encoding);
+        };
+
+        const writing = repo.write(next);
+        await started.promise;
+        try {
+          await expect(repo.read()).resolves.toEqual(previous);
+        } finally {
+          release.resolve();
+          await writing;
+        }
+        await expect(repo.read()).resolves.toEqual(next);
+        expect(Object.keys(fs.dump())).toEqual([repo.storePath()]);
+      }
+    );
+
+    it('keeps overlapping writers isolated until each complete replacement', async () => {
       await repo.write([PAIRED_DEVICE]);
-      const raw = fs.dump()['/app-data/devices.json'] ?? '';
-      expect(raw).toContain('\n  "devices"');
+      const first = [{ ...PAIRED_DEVICE, name: 'First TV' }];
+      const second = [{ ...PAIRED_DEVICE, name: 'Second TV' }];
+      const started = [makeGate(), makeGate()] as const;
+      const release = [makeGate(), makeGate()] as const;
+      const writeFile = fs.writeFile.bind(fs);
+      let writeIndex = 0;
+      fs.writeFile = async (filePath, contents, encoding) => {
+        const index = writeIndex++;
+        await writeFile(filePath, contents, encoding);
+        const startGate = started[index];
+        const releaseGate = release[index];
+        if (!startGate || !releaseGate) throw new Error('Unexpected additional writer');
+        startGate.resolve();
+        await releaseGate.promise;
+      };
+
+      const firstWrite = repo.write(first);
+      await started[0].promise;
+      // A second repository also shares the canonical store.
+      const secondWrite = new DeviceRepository(fs, paths).write(second);
+      await started[1].promise;
+      try {
+        await expect(repo.read()).resolves.toEqual([PAIRED_DEVICE]);
+        release[1].resolve();
+        await secondWrite;
+        await expect(repo.read()).resolves.toEqual(second);
+        release[0].resolve();
+        await firstWrite;
+        await expect(repo.read()).resolves.toEqual(first);
+        expect(Object.keys(fs.dump())).toEqual([repo.storePath()]);
+      } finally {
+        release.forEach((gate) => {
+          gate.resolve();
+        });
+        await Promise.all([firstWrite, secondWrite]);
+      }
+    });
+
+    it.each(['write', 'rename'] as const)(
+      'preserves the previous state and cleans up after a failed %s',
+      async (failureStage) => {
+        await repo.write([PAIRED_DEVICE]);
+        await fs.writeFile('/app-data/unrelated-file', 'keep me', 'utf8');
+        const previousFiles = fs.dump();
+        const failure = new Error(`Failed ${failureStage}`);
+        if (failureStage === 'write') {
+          const writeFile = fs.writeFile.bind(fs);
+          fs.writeFile = async (filePath, contents, encoding) => {
+            await writeFile(filePath, contents.slice(0, 10), encoding);
+            throw failure;
+          };
+        } else {
+          fs.rename = () => Promise.reject(failure);
+        }
+
+        await expect(repo.write([])).rejects.toBe(failure);
+        await expect(repo.read()).resolves.toEqual([PAIRED_DEVICE]);
+        expect(fs.dump()).toEqual(previousFiles);
+      }
+    );
+
+    it('does not mask the replacement error when temporary cleanup also fails', async () => {
+      await repo.write([PAIRED_DEVICE]);
+      const failure = new Error('Replacement failed');
+      fs.rename = () => Promise.reject(failure);
+      fs.rm = () => Promise.reject(new Error('Cleanup failed'));
+
+      await expect(repo.write([])).rejects.toBe(failure);
+      await expect(repo.read()).resolves.toEqual([PAIRED_DEVICE]);
     });
   });
 
