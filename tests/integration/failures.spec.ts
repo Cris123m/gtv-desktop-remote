@@ -2,6 +2,7 @@ import { readdir, mkdir, writeFile, access } from 'node:fs/promises';
 import path from 'node:path';
 
 import { test, expect } from './app-harness';
+import { createTvEmulator } from './emulator/tv-emulator';
 
 test('PAIR-FAILURE-pairing-reject: received secret is rejected, leaves unauthorized state and UI retry succeeds', async ({
   harness: h,
@@ -256,6 +257,16 @@ test('METRICS-TRANSPORT-FAULT: actual command reconnect refusal records connect 
   expect(failed.recentCommands.find((command) => command.id === 'refused-command')?.status).toBe(
     'failed'
   );
+  // A second fixture must not claim the endpoint while the first has no listeners.
+  const concurrentTv = await createTvEmulator();
+  try {
+    expect(
+      new Set([h.tv.pairingPort, h.tv.remotePort, concurrentTv.pairingPort, concurrentTv.remotePort])
+        .size
+    ).toBe(4);
+  } finally {
+    await concurrentTv.stop();
+  }
   await h.tv.setFault('none');
   await h.api('sendCommand', {
     id: 'transport-recovered-command',
