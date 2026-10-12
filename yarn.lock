@@ -1052,12 +1052,12 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@librecontrol/google-tv@npm:^1.0.1":
-  version: 1.0.1
-  resolution: "@librecontrol/google-tv@npm:1.0.1"
+"@librecontrol/google-tv@npm:^1.0.2":
+  version: 1.0.2
+  resolution: "@librecontrol/google-tv@npm:1.0.2"
   bin:
     librecontrol-google-tv: dist/cli/repl.js
-  checksum: 10c0/ce2a2fc32f64cbc3905134cc6a3104d0d7f81ed6060d99bec282f37a21d1dd3893f64e5c561e6f9e283d84c9451ddaba64d306ebe4c0de8c8fe78bd8806cf0f8
+  checksum: 10c0/87523bacb3979cb26476a375adaa9b4ba77be8b3124cc132b60760a940752bc942fad7da0029282c4e2eb2f2df0a4884f079fe1313bace65ae971a673e25ad8d
   languageName: node
   linkType: hard
 
@@ -5039,7 +5039,7 @@ __metadata:
     "@commitlint/cli": "npm:^21.0.0"
     "@commitlint/config-conventional": "npm:^21.0.0"
     "@eslint/js": "npm:^10.0.0"
-    "@librecontrol/google-tv": "npm:^1.0.1"
+    "@librecontrol/google-tv": "npm:^1.0.2"
     "@playwright/test": "npm:1.64.0"
     "@semantic-release/commit-analyzer": "npm:^13.0.1"
     "@semantic-release/git": "npm:^11.0.0"
