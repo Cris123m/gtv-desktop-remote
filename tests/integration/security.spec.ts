@@ -21,9 +21,9 @@ test('PAIR-CHECKSUM: rendered checksum failure requests a fresh code and valid r
   ).toBeVisible();
   await expect(input).toHaveCount(0);
   expect((await h.api('bootstrap')).deviceState.status).toBe('error');
-  expect((await h.api('bootstrap')).devices.find((item) => item.id === device.id)?.isPaired).not.toBe(
-    true
-  );
+  expect(
+    (await h.api('bootstrap')).devices.find((item) => item.id === device.id)?.isPaired
+  ).not.toBe(true);
   expect(h.tv.snapshot().pairedClients).toBe(0);
   expect(
     h.tv.traces
