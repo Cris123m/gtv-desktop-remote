@@ -261,8 +261,12 @@ test('METRICS-TRANSPORT-FAULT: actual command reconnect refusal records connect 
   const concurrentTv = await createTvEmulator();
   try {
     expect(
-      new Set([h.tv.pairingPort, h.tv.remotePort, concurrentTv.pairingPort, concurrentTv.remotePort])
-        .size
+      new Set([
+        h.tv.pairingPort,
+        h.tv.remotePort,
+        concurrentTv.pairingPort,
+        concurrentTv.remotePort,
+      ]).size
     ).toBe(4);
   } finally {
     await concurrentTv.stop();
