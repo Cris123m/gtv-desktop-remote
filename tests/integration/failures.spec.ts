@@ -260,28 +260,26 @@ test('METRICS-TRANSPORT-FAULT: actual command reconnect refusal records connect 
   // A second fixture must not claim the endpoint while the first has no listeners.
   const concurrentTv = await createTvEmulator();
   try {
+    concurrentTv.trustClient(await h.certificate());
+    await concurrentTv.start();
+    await h.tv.setFault('none');
+    await h.api('sendCommand', {
+      id: 'transport-recovered-command',
+      command: 'right',
+      source: 'button',
+      issuedAt: Date.now(),
+    });
+    await h.tv.waitFor((state) => state.cursor.x === 3);
+    const recovered = await h.api('getMetricsSnapshot');
     expect(
-      new Set([
-        h.tv.pairingPort,
-        h.tv.remotePort,
-        concurrentTv.pairingPort,
-        concurrentTv.remotePort,
-      ]).size
-    ).toBe(4);
+      recovered.recentCommands.find((command) => command.id === 'transport-recovered-command')
+        ?.status
+    ).toBe('sent');
+    expect(recovered.transport.consecutiveSendFailures).toBe(0);
+    expect(concurrentTv.snapshot().cursor).toEqual({ x: 2, y: 2 });
+    expect(concurrentTv.snapshot().keyEvents).toEqual([]);
+    expect(concurrentTv.snapshot().remoteConnections).toBe(0);
   } finally {
     await concurrentTv.stop();
   }
-  await h.tv.setFault('none');
-  await h.api('sendCommand', {
-    id: 'transport-recovered-command',
-    command: 'right',
-    source: 'button',
-    issuedAt: Date.now(),
-  });
-  await h.tv.waitFor((state) => state.cursor.x === 3);
-  const recovered = await h.api('getMetricsSnapshot');
-  expect(
-    recovered.recentCommands.find((command) => command.id === 'transport-recovered-command')?.status
-  ).toBe('sent');
-  expect(recovered.transport.consecutiveSendFailures).toBe(0);
 });
