@@ -3,11 +3,8 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { Writable } from 'node:stream';
 import test from 'node:test';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-
-import semanticRelease from 'semantic-release';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const config = JSON.parse(readFileSync(join(root, '.releaserc.json'), 'utf8'));
@@ -74,22 +71,37 @@ async function preview({ cwd, remote }, expectedVersion, expectedType, expectedB
       encoding: 'utf8',
     })
   );
-  const sink = new Writable({
-    write(_chunk, _encoding, callback) {
-      callback();
-    },
-  });
-  // An empty environment disables CI/PR auto-detection and contains no API tokens.
-  const result = await semanticRelease(
-    {
-      branches: config.branches,
-      repositoryUrl: pathToFileURL(remote).href,
-      plugins: previewPlugins,
-      dryRun: true,
-      ci: false,
-    },
-    { cwd, env: {}, stdout: sink, stderr: sink }
+  // Isolate semantic-release's global output hooks from the Node test runner.
+  // The child gets no tokens, CI detection variables, or NODE_TEST_CONTEXT.
+  const resultPath = join(cwd, '.release-preview-result.json');
+  const options = {
+    branches: config.branches,
+    repositoryUrl: pathToFileURL(remote).href,
+    plugins: previewPlugins,
+    dryRun: true,
+    ci: false,
+  };
+  execFileSync(
+    process.execPath,
+    [
+      '--input-type=module',
+      '--eval',
+      `
+        import { writeFileSync } from 'node:fs';
+        import { Writable } from 'node:stream';
+        import semanticRelease from ${JSON.stringify(import.meta.resolve('semantic-release'))};
+        const [options, resultPath] = JSON.parse(process.argv[1]);
+        const sink = new Writable({ write(_chunk, _encoding, callback) { callback(); } });
+        const result = await semanticRelease(options, {
+          cwd: process.cwd(), env: process.env, stdout: sink, stderr: sink,
+        });
+        writeFileSync(resultPath, JSON.stringify(result ? { nextRelease: result.nextRelease } : false));
+      `,
+      JSON.stringify([options, resultPath]),
+    ],
+    { cwd, env: { PATH: process.env.PATH }, encoding: 'utf8' }
   );
+  const result = JSON.parse(readFileSync(resultPath, 'utf8'));
   assert.equal(info.lastTag, expectedBase);
   assert.equal(info.version, expectedVersion);
   assert.equal(info.releaseType, expectedType);
