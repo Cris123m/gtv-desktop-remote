@@ -113,7 +113,7 @@ export default tseslint.config(
 
   // ── Scripts (plain JS/MJS — Node globals, no type-checking) ──────────────
   {
-    files: ['scripts/**/*.{mjs,js,cjs}', 'tests/integration/**/*.cjs'],
+    files: ['scripts/**/*.{mjs,js,cjs}', 'tests/integration/**/*.cjs', 'tests/release/**/*.mjs'],
     extends: [tseslint.configs.disableTypeChecked],
     languageOptions: {
       globals: {

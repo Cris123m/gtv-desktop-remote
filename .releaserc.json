@@ -2,7 +2,7 @@
   "branches": ["main"],
   "plugins": [
     [
-      "@semantic-release/commit-analyzer",
+      "./scripts/analyze-release-commits.mjs",
       {
         "releaseRules": [
           { "type": "feat", "release": "minor" },
