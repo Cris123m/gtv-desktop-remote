@@ -169,7 +169,10 @@ test('RESET: cancel preserves identity, confirm deletes saved and legacy credent
     window.confirm = () => true;
   });
   await reset.click();
-  await expect.poll(async () => (await h.api('bootstrap')).devices.length).toBe(0);
+  // Bootstrap storage empties before legacy cleanup; wait for the awaited renderer operation.
+  await expect(h.page.locator('.ui-devices-content .ui-card')).toHaveCount(0);
+  await expect(reset).toBeEnabled();
+  expect((await h.api('bootstrap')).devices).toEqual([]);
   const certificateFiles = await readdir(path.join(h.profile, 'androidtvremote')).catch(
     (error: NodeJS.ErrnoException) => {
       if (error.code !== 'ENOENT') throw error;
