@@ -140,7 +140,7 @@ jobs:
 
       - name: Package macOS DMG + ZIP
         if: steps.dry-run.outputs.will_release == 'true'
-        run: npx electron-builder --mac dmg zip --publish never
+        run: npx electron-builder --mac dmg zip --x64 --arm64 --publish never
 
       - name: Normalize release artifact names
         if: steps.dry-run.outputs.will_release == 'true'
